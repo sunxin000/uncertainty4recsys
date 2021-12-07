@@ -27,10 +27,16 @@ def load_data(dataset, train):
 
 class ObservedData(Dataset):
     "emplicit"
-    def __init__(self, dataset = "coat", train = True, implicit = False, threshold = 3) -> None:
+    def __init__(self, dataset = "coat", train = True, implicit = False, threshold = 3, propensity = None) -> None:
         super().__init__()
         self.threshold = threshold
         self.user, self.item, self.target = load_data(dataset, train)
+        self.user_num = np.max(self.user) + 1
+        self.item_num = np.max(self.item) + 1
+        if implicit:
+            self._preprocess_target()
+        self.propensity = propensity
+
         # self.user_num = np.max(self.user) + 1
         # self.item_num = np.max(self.item) + 1
     
@@ -47,10 +53,19 @@ class ObservedData(Dataset):
         user = self.user[index]
         item = self.item[index]
         target = self.target[index]
-        return (
+        if self.propensity is None:
+            return (
+                torch.tensor(user, dtype=torch.long),
+                torch.tensor(item, dtype=torch.long),
+                torch.tensor(target, dtype = torch.float)
+            )
+        else:
+            propensity = self.propensity[index]
+            return (
             torch.tensor(user, dtype=torch.long),
             torch.tensor(item, dtype=torch.long),
-            torch.tensor(target, dtype = torch.float)
+            torch.tensor(target, dtype = torch.float),
+            propensity
         )
 
 
@@ -61,7 +76,7 @@ class Observe(Dataset):
         self.user_num = np.max(user) + 1
         self.item_num = np.max(item) + 1
 
-        uniform_matrix = np.array([[x,y] for x in np.arange(self.user_num) for y in np.arange(self.item_num)]) #TODO: a better to calculate the cartesian product
+        uniform_matrix = np.array([[x,y] for x in np.arange(self.user_num) for y in np.arange(self.item_num)]) #TODO: a better to calculate the cartesian product torch.cartesian_prod(users, items) 
         missing_matrix = np.array(list(set([tuple(x) for x in uniform_matrix]) - set([x for x in zip(user, item)])))#TODO:   better way
 
         user_missing = missing_matrix[:, 0]

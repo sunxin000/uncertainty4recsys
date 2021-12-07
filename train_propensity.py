@@ -1,5 +1,3 @@
-from torch.cuda import random
-from torch.optim.optimizer import Optimizer
 from torchmetrics.functional.classification.accuracy import accuracy
 from utils.dataset import Observe
 
@@ -17,15 +15,14 @@ from model.neumf import NeuMF
 embedding_size = 64
 batch_size = 1024
 data = "coat"
-epoch = 200 if data == "coat" else 20
+epoch = 500 if data == "coat" else 50
 
 train = Observe(data, True, 1)
 test = Observe(data, False, 1)
 lr = 1e-3
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-model = NeuMF(train.user_num, train.item_num, embedding_size, embedding_size, [32, 16, 8])
+model = NeuMF(train.user_num, train.item_num, embedding_size, embedding_size, [32, 32, 32, 32])
 
-l2_reg_lambda = 1e-4
 print(len(train))
 train_size  = int(0.9 * len(train))
 validation_size = len(train) - train_size

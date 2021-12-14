@@ -91,12 +91,13 @@ class Observe(Dataset):
             self.item = np.append(item, item_missing)
             self.target = np.array([1] * len(user) + [0]*len(user_missing)) #! whether observed
 
-        if sample_ratio == 0:
+        elif sample_ratio == 0:
             self.user = user
             self.item = item
             self.target = np.array([1] * len(user))
 
         else:
+            print("hello")
             self.missing_num = min(missing_num, sample_ratio * len(user))
             index = np.random.choice(missing_num, self.missing_num, replace = True)
             self.user = np.append(user, user_missing[index])

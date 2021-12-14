@@ -14,11 +14,11 @@ from model.neumf import NeuMF
 
 embedding_size = 64
 batch_size = 1024
-data = "coat"
+data = "yahoo"
 epoch = 500 if data == "coat" else 50
-
-train = Observe(data, True, 1)
-test = Observe(data, False, 1)
+sample_ratio = 4
+train = Observe(data, True, sample_ratio=sample_ratio)
+test = Observe(data, False, sample_ratio=sample_ratio)
 lr = 1e-3
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 model = NeuMF(train.user_num, train.item_num, embedding_size, embedding_size, [32, 32, 32, 32])
@@ -36,6 +36,7 @@ test_loader = DataLoader(dataset=test, batch_size=1024, shuffle=True, num_worker
 #? no 
 model = model.to(device)
 loss_func = nn.BCELoss()
+
 optimizer = optim.Adam(model.parameters(), lr = lr, weight_decay= 0.001)
 
 best_hr = 0
@@ -79,18 +80,15 @@ for epoch in range(1, epoch + 1):
     model.eval()
 
 
-    HR, NDCG, acc = metrics(model, val_loader, 2, device)
+    _, _, acc = metrics(model, val_loader, 2, device)
 
     if epoch > start_checking_epoch and acc > best_acc:
-
         state = {
             'net': model.state_dict(),
             'acc': acc,
             'epoch': epoch,
         }
-        torch.save(state,  f"saved_propensity_model/neumf_propensity_{data}.ckpt")
-
-    print("HR: {:.3f}\tNDCG: {:.3f}".format(np.mean(HR), np.mean(NDCG)))
+        torch.save(state,  f"saved_propensity_model/neumf_propensity_{sample_ratio}_{data}.ckpt")
     print(f"acc {acc:.3f}")
 
 

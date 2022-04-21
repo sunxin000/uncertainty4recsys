@@ -29,9 +29,9 @@ user_num, item_num = train.user_num, train.item_num
 train_size  = int(0.9 * len(train))
 validation_size = len(train) - train_size
 train, validation = random_split(train, [train_size, validation_size])
-train_loader = DataLoader(dataset=train, batch_size=1024, shuffle=True, num_workers=8)
-val_loader = DataLoader(dataset=validation, batch_size=1024, shuffle=True, num_workers=8)
-test_loader = DataLoader(dataset=test, batch_size=1024, shuffle=False, num_workers=8)
+train_loader = DataLoader(dataset=train, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=True)
+val_loader = DataLoader(dataset=validation, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=True)
+test_loader = DataLoader(dataset=test, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=True)
 
 
 # model = NeuMF(user_num, item_num, embedding_size, embedding_size, [32, 16, 8])

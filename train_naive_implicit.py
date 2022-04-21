@@ -5,9 +5,12 @@ from torch.utils.data import DataLoader, random_split
 import numpy as np
 from torchmetrics.functional.classification.accuracy import accuracy
 from model.MF import MF
+import torch.autograd.profiler as profiler
+
 
 from utils.metrics import metrics, dcg_at_k
 from utils.dataset import ObservedData
+torch.backends.cudnn.benchmark = True
 
 # import argparse
 # import torch.distributed as dist
@@ -39,13 +42,15 @@ train, validation = random_split(train, [train_size, validation_size])
 # train_sampler = torch.utils.data.distributed.DistributedSampler(train)
 
 train_loader = DataLoader(dataset=train,
-                          batch_size=1024,
+                          batch_size=batch_size,
                           shuffle=True,
-                          num_workers=8)
+                          num_workers=0,
+                          pin_memory=True)
 test_loader = DataLoader(dataset=test,
-                         batch_size=1024,
+                         batch_size=batch_size,
                          shuffle=False,
-                         num_workers=8)
+                         num_workers=0,
+                         pin_memory=True)
 
 # model = NeuMF(user_num, item_num, embedding_size, embedding_size, [32, 16, 8])
 model = MF(user_num, item_num, embedding_size)
@@ -66,13 +71,12 @@ print(f"the num of batches is {batches}")
 start_checking_epoch = 10
 
 for epoch in range(1, epoch + 1):
-
+# with profiler.profile(enabled=True, use_cuda=True, record_shapes=False, profile_memory=False) as prof:
     best_acc = 0
     model.train()
     # loss_tmp = 0
     acc = []
     for user, item, label in train_loader:
-
         user, item = user.cuda(), item.cuda()
         label = label.cuda()
         optimizer.zero_grad()
@@ -108,9 +112,9 @@ for epoch in range(1, epoch + 1):
         # PRECISION.append(accuracy(pred.cpu(), label.long()).numpy())
 
     dcg = dcg_at_k(labels,
-                   predictions,
-                   test.user_num,
-                   items_per_user=items_per_user)
+                predictions,
+                test.user_num,
+                items_per_user=items_per_user)
 
     # acc = np.mean(PRECISION)
     # print(f"acc {acc:.3f}")
@@ -123,3 +127,4 @@ for epoch in range(1, epoch + 1):
     #         'epoch': epoch,
     #     }
     #     torch.save(state,  f"saved_propensity_model/neumf_propensity_{data}.ckpt")
+# print(prof.table())

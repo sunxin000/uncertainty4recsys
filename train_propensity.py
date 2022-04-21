@@ -1,95 +1,110 @@
 from torchmetrics.functional.classification.accuracy import accuracy
 from utils.dataset import Observe
-
+import argparse
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
+from torch.utils.tensorboard import SummaryWriter
+
 import numpy as np
-
-
 from utils.metrics import metrics
 from model.neumf import NeuMF
 
 
-embedding_size = 64
-batch_size = 1024
-data = "yahoo"
-epoch = 500 if data == "coat" else 50
-sample_ratio = 4
-train = Observe(data, True, sample_ratio=sample_ratio)
-test = Observe(data, False, sample_ratio=sample_ratio)
-lr = 1e-3
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-model = NeuMF(train.user_num, train.item_num, embedding_size, embedding_size, [32, 32, 32, 32])
+def arg_parse():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', default='coat')
+    parser.add_argument('--embedding_size', type=int, default=64)
+    parser.add_argument('--sample_ratio', type=int, default=4)
+    parser.add_argument('--mlp_dim', type=int, default=32)
+    return parser.parse_args()
+def main():  
+    args = arg_parse()
+    sample_ratio = args.sample_ratio
+    batch_size = 1024
+    embedding_size = args.embedding_size
+    mlp_dim = args.mlp_dim
+    data = args.dataset
+    writer = SummaryWriter(log_dir=f'tensorboard/{data}/{embedding_size}_{mlp_dim}_{sample_ratio}')
 
-print(len(train))
-train_size  = int(0.9 * len(train))
-validation_size = len(train) - train_size
-train, validation = random_split(train, [train_size, validation_size])
+    epoch = 500 if data == "coat" else 50
 
-train_loader = DataLoader(dataset=train, batch_size=1024, shuffle=True, num_workers=8)
-val_loader = DataLoader(dataset=validation, batch_size=1024, shuffle=True, num_workers=8)
-test_loader = DataLoader(dataset=test, batch_size=1024, shuffle=True, num_workers=8)
+    train = Observe(data, True, sample_ratio=sample_ratio)
+    test = Observe(data, False, sample_ratio=sample_ratio)
+    lr = 1e-3
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    model = NeuMF(train.user_num, train.item_num, embedding_size, embedding_size, [mlp_dim, mlp_dim, mlp_dim, mlp_dim])
 
-#! dont knwo whether the testset has unknown user
-#? no 
-model = model.to(device)
-loss_func = nn.BCELoss()
+    print(len(train))
+    train_size  = int(0.9 * len(train))
+    validation_size = len(train) - train_size
+    train, validation = random_split(train, [train_size, validation_size])
 
-optimizer = optim.Adam(model.parameters(), lr = lr, weight_decay= 0.001)
+    train_loader = DataLoader(dataset=train, batch_size=1024, shuffle=True, pin_memory=True)
+    val_loader = DataLoader(dataset=validation, batch_size=1024, shuffle=True, pin_memory=True)
+    test_loader = DataLoader(dataset=test, batch_size=1024, shuffle=True, pin_memory=True)
 
-best_hr = 0
-batches = len(train_loader)
+    #! dont knwo whether the testset has unknown user
+    #? no 
+    model = model.to(device)
+    loss_func = nn.BCELoss()
 
-# patient = 20
-start_checking_epoch = 10
+    optimizer = optim.Adam(model.parameters(), lr = lr, weight_decay= 0.001)
 
-print(f"the num of batches is {batches}")
-for epoch in range(1, epoch + 1):
+    best_hr = 0
+    batches = len(train_loader)
 
-    best_acc = 0
-    model.train()
-    # loss_tmp = 0
-    acc = []
-    for user, item, label in train_loader:
-        user = user.to(device)
-        item = item.to(device)
-        label = label.to(device)
+    # patient = 20
+    if data == 'coat': 
+        start_checking_epoch = 100
+    else:
+        start_checking_epoch = 10
 
-        optimizer.zero_grad()
-        prediction = model(user, item)
-        loss = loss_func(prediction, label.float())
-        loss.backward()
-        optimizer.step()
+    for epoch in range(1, epoch + 1):
 
-        
-        acc.append(accuracy(prediction, label).cpu().numpy())
+        best_acc = 0
+        model.train()
+        loss_tmp = 0
+        acc = []
+        for user, item, label in train_loader:
+            user = user.to(device)
+            item = item.to(device)
+            label = label.to(device)
 
-
-        # loss_tmp += loss.item()
-    cur_acc = np.mean(acc)
-    print(cur_acc)
-
-
-
-    #! for early stopping 
-
-    # loss_tmp /= batches
-    # print(f"Epoch {epoch}: loss {loss_tmp}")
-    model.eval()
+            optimizer.zero_grad()
+            prediction = model(user, item)
+            loss = loss_func(prediction, label.float())
+            loss.backward()
 
 
-    _, _, acc = metrics(model, val_loader, 2, device)
-
-    if epoch > start_checking_epoch and acc > best_acc:
-        state = {
-            'net': model.state_dict(),
-            'acc': acc,
-            'epoch': epoch,
-        }
-        torch.save(state,  f"saved_propensity_model/neumf_propensity_{sample_ratio}_{data}.ckpt")
-    print(f"acc {acc:.3f}")
+            optimizer.step()
+            acc.append(accuracy(prediction, label).cpu().numpy())
 
 
+            loss_tmp += loss.item()
+        cur_acc = np.mean(acc)
+        writer.add_scalar('loss', loss_tmp/batches, epoch-1)
+        writer.add_scalar('train_acc', cur_acc, epoch-1)
+        # loss_tmp /= batches
+        # print(f"Epoch {epoch}: loss {loss_tmp}")
+        model.eval()
 
+        _, _, acc = metrics(model, val_loader, 2, device)
+        writer.add_scalar('test_acc', acc, epoch-1)
+
+        if epoch > start_checking_epoch and acc > best_acc:
+            state = {
+                'net': model.state_dict(),
+                'acc': acc,
+                'epoch': epoch,
+            }
+            torch.save(state,  f"saved_propensity_model/neumf_propensity_{sample_ratio}_{data}_{embedding_size}_{mlp_dim}.ckpt")
+        print(f"acc {acc:.3f}")
+
+
+    writer.flush()
+    writer.close()
+
+if __name__ == '__main__':
+    main()

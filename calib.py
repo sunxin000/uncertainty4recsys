@@ -6,19 +6,19 @@ from model.neumf import NeuMF
 from utils.dataset import Observe
 import matplotlib.pyplot as plt
 import numpy as np
-from train_propensity import arg_parse
+from train_propensity import parse_args
 from tensorflow_probability.python.stats import expected_calibration_error as ece 
 
 
 def main():
-    args = arg_parse()
+    args = parse_args()
     embedding_size = args.embedding_size
     mlp_dim = args.mlp_dim
     data = args.dataset
     sample_ratio = args.sample_ratio
 
     batch_size = 1024
-    path = f'saved_propensity_model/neumf_propensity_{sample_ratio}_{data}_{embedding_size}_{mlp_dim}.ckpt'
+    path = f'saved_propensity_model/{data}/neumf_propensity_{sample_ratio}_{embedding_size}_{mlp_dim}.ckpt'
 
 
     train = Observe(data, True, sample_ratio=sample_ratio) #! the sample ratio can change

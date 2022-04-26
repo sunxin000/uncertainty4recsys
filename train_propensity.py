@@ -19,9 +19,11 @@ from matplotlib import pyplot as plt
 def parse_args(**kwargs):
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', default='coat')
-    parser.add_argument('--embedding_size', type=int, default=128)
-    parser.add_argument('--sample_ratio', type=int, default=1)
-    parser.add_argument('--mlp_dim', type=int, default=64)
+    parser.add_argument('--embedding_size', type=int, default=64)
+    parser.add_argument('--sample_ratio', type=int, default=-1)
+    parser.add_argument('--mlp_layers',nargs='*' ,type=int, default=[64, 32, 16])
+    parser.add_argument('--lr', type=float, default=0.01)
+    parser.add_argument('--weight_decay', type=float, default=0.1)
     for k, v in kwargs.items():
         parser.add_argument(k, type=v) 
 
@@ -31,18 +33,20 @@ def main():
     sample_ratio = args.sample_ratio
     batch_size = 1024
     embedding_size = args.embedding_size
-    mlp_dim = args.mlp_dim
     data = args.dataset
-    writer = SummaryWriter(log_dir=f'tensorboard/{data}_ps/{embedding_size}_{mlp_dim}_{sample_ratio}')
+    mlp_layers = args.mlp_layers
+    lr = args.lr
+    weight_decay = args.weight_decay
+    writer = SummaryWriter(log_dir=f'tensorboard/{data}_ps/{embedding_size}_{mlp_layers}_{sample_ratio}')
 
     epoch = 100 if data == "coat" else 50
 
     train = Observe(data, True, sample_ratio=sample_ratio)
-    test = Observe(data, False, sample_ratio=sample_ratio)
+    # test = Observe(data, False, sample_ratio=sample_ratio)
     train_pos = Observe(data, True, 0)
-    lr = 1e-3
+
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    model = NeuMF(train.user_num, train.item_num, embedding_size, embedding_size, [mlp_dim, mlp_dim, mlp_dim, mlp_dim])
+    model = NeuMF(train.user_num, train.item_num, embedding_size, embedding_size, mlp_layers)
 
     # print(len(train))
     train_size  = int(0.9 * len(train))
@@ -54,14 +58,14 @@ def main():
     train_loader_not_shuffle  = DataLoader(dataset=train_pos, batch_size=batch_size, shuffle=False, pin_memory=True)
 
     val_loader = DataLoader(dataset=validation, batch_size=1024, shuffle=True, pin_memory=True)
-    test_loader = DataLoader(dataset=test, batch_size=1024, shuffle=True, pin_memory=True)
+    # test_loader = DataLoader(dataset=test, batch_size=1024, shuffle=True, pin_memory=True)
 
     #! dont knwo whether the testset has unknown user
     #? no 
     model = model.to(device)
     loss_func = nn.BCELoss()
 
-    optimizer = optim.Adam(model.parameters(), lr = lr, weight_decay= 0.001)
+    optimizer = optim.Adam(model.parameters(), lr = lr, weight_decay=weight_decay)
 
     best_hr = 0
     len_preds = 311704 if data == 'yahoo' else 6960
@@ -75,7 +79,6 @@ def main():
     ece = ECE(bins=100)
 
     for epoch in tqdm(range(1, epoch + 1)):
-
         best_acc = 0
         model.train()
         loss_tmp = 0
@@ -86,7 +89,6 @@ def main():
             user = user.to(device)
             item = item.to(device)
             label = label.to(device)
-
             optimizer.zero_grad()
             prediction = model(user, item)
             loss = loss_func(prediction, label.float())
@@ -118,15 +120,15 @@ def main():
                 'acc': acc,
                 'epoch': epoch,
             }
-            torch.save(state,  f"saved_propensity_model/{data}/neumf_propensity_{sample_ratio}_{embedding_size}_{mlp_dim}.ckpt")
+            torch.save(state,  f"saved_propensity_model/{data}/neumf_{sample_ratio}_{embedding_size}_{mlp_layers}.ckpt")
         # print(f"acc {acc:.3f}")
 
         if epoch % 10 == 0:
             # display
             disp = CalibrationDisplay.from_predictions(labels, preds, n_bins=20, strategy='quantile')
-            title = f'{data}_{sample_ratio}_{embedding_size}_{mlp_dim}'
+            title = f'{data}_{sample_ratio}_{embedding_size}_{mlp_layers}'
             plt.title(title)
-            plt.savefig(f"pic/coat/epoch_{epoch}_20_quantile.jpg")
+            plt.savefig(f"pic/coat/small/neumf_{epoch}_20_quantile.jpg")
 
             # generate the propensity 
             predictions = np.zeros(len_preds)
@@ -137,10 +139,9 @@ def main():
                     pred = model(user, item)
                     predictions[index * batch_size: min((index + 1) * batch_size, len_preds)] = np.asarray(pred.cpu())
             
-            torch.save(predictions, f"data/propensity/raw/neumf_{data}_epoch_{epoch}.pt")
+            torch.save(predictions, f"data/propensity/raw/{data}_epoch_{epoch}_{sample_ratio}.pt")
 
                 
-
     writer.flush()
     writer.close()
 

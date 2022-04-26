@@ -1,5 +1,6 @@
 import numpy as np
 from tqdm import tqdm
+import argparse 
 
 import torch
 import torch.nn as nn
@@ -10,26 +11,37 @@ from torch.utils.tensorboard import SummaryWriter
 from utils.metrics import metrics, dcg_at_k
 from model.neumf import NeuMF
 from utils.dataset import ObservedData
-from train_propensity import parse_args
-
+def parse_args(**kwargs):
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', default='coat')
+    parser.add_argument('--embedding_size', type=int, default=64)
+    parser.add_argument('--sample_ratio', type=int, default=1)
+    parser.add_argument('--mlp_layers',nargs='*' ,type=int, default=[64, 32, 16])
+    parser.add_argument('--lr', type=float, default=0.01)
+    parser.add_argument('--weight_decay', type=float, default=0.1)
+    parser.add_argument('--ps_epoch', type=int, default=50)
+    for k, v in kwargs.items():
+        parser.add_argument(k, type=v) 
+    return parser.parse_args()
 
 def main():
     args = parse_args()
     batch_size = 1024
-    lr = 1e-3
-    n_layers = 4
+    lr = args.lr
+    mlp_layers = args.mlp_layers
     embedding_size = args.embedding_size
     data = args.dataset
-    mlp_dim = args.mlp_dim
     sample_ratio = args.sample_ratio
-    epoch = 1000 if data == "coat" else 20
+    epoch = 100 if data == "coat" else 20
+    ps_epoch = args.ps_epoch
+    weight_decay = args.weight_decay
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     items_per_user = 16 if data == "coat" else 10
-
+    dir = 'raw'
     propensity = torch.load(
-        f"data/propensity/neumf_propensity_{sample_ratio}_{data}_{embedding_size}_{mlp_dim}.pt"
+        f'data/propensity/raw/coat_epoch_{ps_epoch}_-1.pt'
     )
     train = ObservedData(data,
                          train=True,
@@ -59,7 +71,6 @@ def main():
                              num_workers=0,
                              pin_memory=True)
 
-    mlp_layers = [mlp_dim] * n_layers
     model = NeuMF(user_num, item_num, embedding_size, embedding_size,
                   mlp_layers)
     #! dont knwo whether the testset has unknown user
@@ -68,7 +79,7 @@ def main():
     loss_func = nn.BCELoss(reduction='none')
     # loss_func = nn.BCELoss()
     optimizer = optim.Adam(model.parameters(),
-                           lr=lr, weight_decay=0.001)  #! can adjust the weight_decay
+                           lr=lr, weight_decay=weight_decay)  #! can adjust the weight_decay
 
     batches = len(train_loader)
 
@@ -76,11 +87,9 @@ def main():
     start_checking_epoch = 10
     writer = SummaryWriter(
         log_dir=
-        f'tensorboard/{data}_rec/{embedding_size}_{mlp_dim}_{sample_ratio}')
+        f'tensorboard/{data}_rec_with_ps/{sample_ratio}_{embedding_size}_{mlp_layers}_{ps_epoch}_weight_decay_{weight_decay}')
 
     for epoch in tqdm(range(1, epoch + 1)):
-
-        best_acc = 0
         model.train()
         loss_tmp = 0
         acc = []

@@ -34,12 +34,14 @@ def main():
 
     batch_size = 1024
     data = args.dataset
-    epoch = 1000 if data == "coat" else 20
+    epoch = 200 if data == "coat" else 20
     items_per_user = 16 if data == "coat" else 10
-    n_layers = 4
-    mlp_dim = 64 if data == 'coat' else 128
-    mlp_layers = [mlp_dim] * n_layers
-    embedding_size = 128 if data == 'coat' else 64
+    # n_layers = 4
+    # mlp_dim = 64 if data == 'coat' else 128
+    # mlp_layers = [mlp_dim] * n_layers
+    # embedding_size = 128 if data == 'coat' else 64
+    mlp_layers = [64, 32, 16]
+    embedding_size = 64
 
     train = ObservedData(data, train=True, implicit=True)
     # train = ObservedData(data, train=True, implicit=True)
@@ -79,7 +81,7 @@ def main():
     # patient = 20
     start_checking_epoch = 10
     writer = SummaryWriter(
-        log_dir=f'tensorboard/{data}_benchmark/weight_decay_{weight_decay}_lr_{lr}')
+        log_dir=f'tensorboard/{data}_benchmark_new/weight_decay_{weight_decay}_lr_{lr}')
 
     for epoch in range(1, epoch + 1):
         # with profiler.profile(enabled=True, use_cuda=True, record_shapes=False, profile_memory=False) as prof:

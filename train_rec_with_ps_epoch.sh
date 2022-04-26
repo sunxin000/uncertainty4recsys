@@ -1,0 +1,8 @@
+for epoch in {10..100..10}; do
+    CUDA_VISIBLE_DEVICES=2 python train_rec_with_ips.py --ps_epoch ${epoch} &
+done
+# for weight_decay in 0.1 0.01 0.001 0.0001; do
+#     for lr in 0.01 0.001; do
+#         CUDA_VISIBLE_DEVICES=9 python train_rec_with_ips.py --dataset coat --weight_decay ${weight_decay} --lr ${lr} &
+#     done
+# done

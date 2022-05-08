@@ -20,7 +20,7 @@ class NeuMF(nn.Module):
         self.item_mf_embedding = nn.Embedding(self.num_items, self.mf_emb_size)
         self.user_mlp_embedding = nn.Embedding(self.num_users, self.mlp_emb_size)
         self.item_mlp_embedding = nn.Embedding(self.num_items, self.mlp_emb_size)
-
+        self.dropout_layer = nn.Dropout(p=dropout)
         self.mlp_layers = MLPLayers([2 * self.mlp_emb_size] + self.mlp_hidden_size, self.dropout, init_method= 'xavier')
         self.predict_layer = nn.Linear(self.mf_emb_size + self.mlp_hidden_size[-1], 1)
         self.sigmoid = nn.Sigmoid()
@@ -32,6 +32,12 @@ class NeuMF(nn.Module):
         item_mf_e = self.item_mf_embedding(item)
         user_mlp_e = self.user_mlp_embedding(user)
         item_mlp_e = self.item_mlp_embedding(item)
+
+        user_mf_e = self.dropout_layer(user_mf_e)
+        item_mf_e = self.dropout_layer(item_mf_e)
+        user_mlp_e = self.dropout_layer(user_mlp_e)
+        item_mlp_e = self.dropout_layer(item_mlp_e)
+        
         mf_output = torch.mul(user_mf_e, item_mf_e)  # [batch_size, embedding_size]
         mlp_output = self.mlp_layers(torch.cat((user_mlp_e, item_mlp_e), -1))  # [batch_size, layers[-1]]
         output = self.sigmoid(self.predict_layer(torch.cat((mf_output, mlp_output), -1)))

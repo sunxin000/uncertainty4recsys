@@ -1,6 +1,7 @@
+from xml.etree.ElementInclude import default_loader
 import numpy as np
 from tqdm import tqdm
-import argparse 
+import argparse
 
 import torch
 import torch.nn as nn
@@ -11,38 +12,50 @@ from torch.utils.tensorboard import SummaryWriter
 from utils.metrics import metrics, dcg_at_k
 from model.neumf import NeuMF
 from utils.dataset import ObservedData
+
+
 def parse_args(**kwargs):
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', default='coat')
     parser.add_argument('--embedding_size', type=int, default=64)
     parser.add_argument('--sample_ratio', type=int, default=1)
-    parser.add_argument('--mlp_layers',nargs='*' ,type=int, default=[64, 32, 16])
-    parser.add_argument('--lr', type=float, default=0.01)
-    parser.add_argument('--weight_decay', type=float, default=0.1)
-    parser.add_argument('--ps_epoch', type=int, default=50)
+    parser.add_argument('--mlp_layers',
+                        nargs='*',
+                        type=int,
+                        default=[64, 32, 16])
+    parser.add_argument('--lr', type=float, default=0.001)
+    parser.add_argument('--weight_decay', type=float, default=0.001)
+    parser.add_argument('--ps_epoch', type=int, default=0)
+    parser.add_argument("--n_flag", type=int, default=0)
+    parser.add_argument("--dropout", type=float, default=0.2)
+    parser.add_argument("--dir", default='raw')
+    parser.add_argument("--epoch", type=int, default=300)
+    parser.add_argument('--path')
     for k, v in kwargs.items():
-        parser.add_argument(k, type=v) 
+        parser.add_argument(k, type=v)
     return parser.parse_args()
+
 
 def main():
     args = parse_args()
     batch_size = 1024
+    dropout = args.dropout
+    n_flag = args.n_flag
+    dir=args.dir
     lr = args.lr
     mlp_layers = args.mlp_layers
     embedding_size = args.embedding_size
     data = args.dataset
     sample_ratio = args.sample_ratio
-    epoch = 100 if data == "coat" else 20
+    epoch = args.epoch if data == "coat" else 20
     ps_epoch = args.ps_epoch
     weight_decay = args.weight_decay
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     items_per_user = 16 if data == "coat" else 10
-    dir = 'raw'
-    propensity = torch.load(
-        f'data/propensity/raw/coat_epoch_{ps_epoch}_-1.pt'
-    )
+    dir = args.dir
+    propensity = torch.load(f'data/propensity/raw/coat_epoch_10_-1_dropout_0.2.pt')
     train = ObservedData(data,
                          train=True,
                          implicit=True,
@@ -71,15 +84,20 @@ def main():
                              num_workers=0,
                              pin_memory=True)
 
-    model = NeuMF(user_num, item_num, embedding_size, embedding_size,
-                  mlp_layers)
+    model = NeuMF(user_num,
+                  item_num,
+                  embedding_size,
+                  embedding_size,
+                  mlp_layers,
+                  dropout=dropout)
     #! dont knwo whether the testset has unknown user
     #? no
     model = model.to(device)
     loss_func = nn.BCELoss(reduction='none')
     # loss_func = nn.BCELoss()
-    optimizer = optim.Adam(model.parameters(),
-                           lr=lr, weight_decay=weight_decay)  #! can adjust the weight_decay
+    optimizer = optim.Adam(
+        model.parameters(), lr=lr,
+        weight_decay=weight_decay)  #! can adjust the weight_decay
 
     batches = len(train_loader)
 
@@ -87,7 +105,8 @@ def main():
     start_checking_epoch = 10
     writer = SummaryWriter(
         log_dir=
-        f'tensorboard/{data}_rec_with_ps/{sample_ratio}_{embedding_size}_{mlp_layers}_{ps_epoch}_weight_decay_{weight_decay}')
+        f'tensorboard/{data}_rec_with_ps/{dir}/{data}/10_{n_flag}'
+    )
 
     for epoch in tqdm(range(1, epoch + 1)):
         model.train()
@@ -135,9 +154,9 @@ def main():
                        test.user_num,
                        items_per_user=items_per_user)
         for k in [2, 4, 6]:
-            writer.add_scalar(f'test/dcg_at_{k}', dcg[k//2-1], epoch-1) 
+            writer.add_scalar(f'test/dcg_at_{k}', dcg[k // 2 - 1], epoch - 1)
         acc = np.mean(PRECISION)
-        writer.add_scalar('test/acc', acc, epoch-1)
+        writer.add_scalar('test/acc', acc, epoch - 1)
         # print(f"acc {acc:.3f}")
         # print("Epoch:", epoch, "DCG@2,4,6:", dcg)
 

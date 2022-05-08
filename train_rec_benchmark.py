@@ -1,10 +1,11 @@
+import argparse
+import tqdm
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
 import numpy as np
 from torchmetrics.functional.classification.accuracy import accuracy
-from model.MF import MF
 
 from torch.utils.tensorboard import SummaryWriter
 from model.neumf import NeuMF
@@ -13,16 +14,15 @@ from utils.metrics import metrics, dcg_at_k
 from utils.dataset import ObservedData
 
 torch.backends.cudnn.benchmark = True
-
-import argparse
-
-
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--weight_decay", type=float, default=0.001)
-    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--batch_size", type=int, default=1024)
     parser.add_argument("--dataset", default='yahoo')
+    parser.add_argument("--n_flag", type=int, default=0)
+    parser.add_argument("--dropout", type=float, default=0.2)
+    parser.add_argument("--epoch", type=int, default=200)
     args = parser.parse_args()
     return args
 
@@ -31,10 +31,10 @@ def main():
     args = parse_args()
     weight_decay = args.weight_decay
     lr = args.lr
-
-    batch_size = 1024
+    batch_size = args.batch_size
     data = args.dataset
-    epoch = 200 if data == "coat" else 20
+    dropout = args.dropout
+    epoch = args.epoch if data == "coat" else 20
     items_per_user = 16 if data == "coat" else 10
     # n_layers = 4
     # mlp_dim = 64 if data == 'coat' else 128
@@ -66,7 +66,7 @@ def main():
                              pin_memory=True)
 
     model = NeuMF(user_num, item_num, embedding_size, embedding_size,
-                  mlp_layers)
+                  mlp_layers, dropout=dropout)
     # model = MF(user_num, item_num, embedding_size)
     model = model.cuda()
     #! dont knwo whether the testset has unknown user
@@ -79,11 +79,11 @@ def main():
     loss_func = nn.BCELoss()
     batches = len(train_loader)
     # patient = 20
-    start_checking_epoch = 10
+    suffix = f'_{args.n_flag}' if args.n_flag > 0 else ''
     writer = SummaryWriter(
-        log_dir=f'tensorboard/{data}_benchmark_new/weight_decay_{weight_decay}_lr_{lr}')
+        log_dir=f'tensorboard/{data}_benchmark_new/weight_decay_{weight_decay}_lr_{lr}_dropout_{dropout}_{suffix}')
 
-    for epoch in range(1, epoch + 1):
+    for epoch in tqdm.tqdm(range(1, epoch + 1)):
         # with profiler.profile(enabled=True, use_cuda=True, record_shapes=False, profile_memory=False) as prof:
         model.train()
         loss_tmp = 0

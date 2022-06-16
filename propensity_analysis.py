@@ -9,12 +9,19 @@ import torch
 # propensity = train_propensity[user, item]
 # torch.save(propensity, 'data/propensity/coat_origin.pt')
 # np.savetxt('data/propensity/coat_origin.txt', propensity)
-path = 'data/propensity/raw/coat_epoch_10_-1.pt'
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--epoch', type=int, default=10)
+args = parser.parse_args()
+epoch = args.epoch
+path = f'data/propensity/raw/coat_epoch_{epoch}_1_dropout_0.2_label_smoothing_0.0.pt'
 propensity = torch.load(path)
+propensity = propensity[:len(propensity)//2]
 plt.hist(propensity, bins=20)
 
-plt.title(path)
+# plt.title(path)
 plt.xlabel('Propensity')
 plt.ylabel('Amount')
 
-plt.savefig(f'{path}.jpg')
+plt.savefig(f'{path}_positive.jpg')

@@ -10,7 +10,7 @@ from torchmetrics.functional.classification.accuracy import accuracy
 from torch.utils.tensorboard import SummaryWriter
 from model.neumf import NeuMF
 
-from utils.metrics import metrics, dcg_at_k
+from utils.metrics import metrics, dcg_at_k, recall_at_k
 from utils.dataset import ObservedData
 
 torch.backends.cudnn.benchmark = True
@@ -34,7 +34,7 @@ def main():
     batch_size = args.batch_size
     data = args.dataset
     dropout = args.dropout
-    epoch = args.epoch if data == "coat" else 20
+    epoch = args.epoch if data == "coat" else 10
     items_per_user = 16 if data == "coat" else 10
     # n_layers = 4
     # mlp_dim = 64 if data == 'coat' else 128
@@ -81,7 +81,7 @@ def main():
     # patient = 20
     suffix = f'_{args.n_flag}' if args.n_flag > 0 else ''
     writer = SummaryWriter(
-        log_dir=f'tensorboard/{data}_benchmark_new/weight_decay_{weight_decay}_lr_{lr}_dropout_{dropout}_{suffix}')
+        log_dir=f'tensorboard/{data}_benchmark_recall/weight_decay_{weight_decay}_lr_{lr}_dropout_{dropout}_{suffix}')
 
     for epoch in tqdm.tqdm(range(1, epoch + 1)):
         # with profiler.profile(enabled=True, use_cuda=True, record_shapes=False, profile_memory=False) as prof:
@@ -119,8 +119,14 @@ def main():
                        predictions,
                        test.user_num,
                        items_per_user=items_per_user)
+        recall = recall_at_k(
+            labels,
+            predictions,
+            test.user_num,
+            items_per_user)
         for k in [2, 4, 6]:
             writer.add_scalar(f'test/dcg_at_{k}', dcg[k//2-1], epoch-1) 
+            writer.add_scalar(f'test/recall_at_{k}', recall[k//2-1], epoch-1)
         acc = np.mean(PRECISION)
         writer.add_scalar('test/acc', acc, epoch-1)
         # if epoch > start_checking_epoch and acc > best_acc:

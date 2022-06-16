@@ -1,10 +1,36 @@
 import torch
 import numpy as np
 from torchmetrics.functional import accuracy
+
 def hit(ng_item, pred_items):
 	if ng_item in pred_items:
 		return 1
 	return 0
+
+def recall_at_k(label, score, user_num, items_per_user ,eval=True):
+	score = np.array(score)
+	label = np.array(label)
+	convert = label.reshape([user_num, items_per_user])
+	score = score.reshape([user_num, items_per_user])
+	convert_sum = np.sum(convert, axis=1)
+	index = np.where(convert_sum > 0)
+	convert = convert[index]
+	score = score[index]
+	user_num = convert.shape[0]
+	###
+	index = np.argsort(-score)  # Descending order
+	convert = np.array([convert[i][index[i]] for i in range(user_num)])
+	recall_k = []
+	if eval:
+		for k in [2, 4, 6]:
+			convert_k = convert[:, :k]
+			recall_k.append(np.sum(convert_k) / user_num)
+	else:
+		for k in [1, 2, 3, 4, 5, 6]:
+			convert_k = convert[:, :k]
+			recall_k.append(np.sum(convert_k) / user_num)
+	return np.array(recall_k)
+
 
 def dcg_at_k(label, score, user_num, items_per_user ,eval=True):
 	score = np.array(score)

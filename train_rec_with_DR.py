@@ -8,8 +8,8 @@ from torch.utils.data import DataLoader, random_split
 from torchmetrics.functional.classification.accuracy import accuracy
 from torch.utils.tensorboard import SummaryWriter
 from utils.metrics import dcg_at_k, recall_at_k
-from model.neumf import NeuMF
-from utils.dataset import ObservedData
+from model import NeuMF, MF
+from utils.dataset import Observe, ObservedData
 
 
 def parse_args(**kwargs):
@@ -23,7 +23,7 @@ def parse_args(**kwargs):
                         default=[64, 32, 16])
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--weight_decay', type=float, default=0.001)
-    parser.add_argument('--ps_epoch', type=int, default=0)
+    parser.add_argument('--ps_epoch', type=int, default=100)
     parser.add_argument("--n_flag", type=int, default=0)
     parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--dir", default='raw')
@@ -50,94 +50,133 @@ def main():
     ps_epoch = args.ps_epoch
     weight_decay = args.weight_decay
     label_smoothing = args.label_smoothing
-
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
     items_per_user = 16 if data == "coat" else 10
     dir = args.dir
     propensity = torch.load(
         f'data/propensity/raw/{data}_epoch_{ps_epoch}_1_dropout_0.2_label_smoothing_{label_smoothing}.pt'
     )
-    train = ObservedData(data,
+    train_il = ObservedData(data,
                          train=True,
                          implicit=True,
                          propensity=propensity)
+    train_pred = Observe(data, train=True, sample_ratio=6, eib=True, propensity=propensity)
 
     # train = ObservedData(data, train=True, implicit=True)
     test = ObservedData(data, train=False, implicit=True)
-    user_num, item_num = train.user_num, train.item_num
+    user_num, item_num = train_il.user_num, train_il.item_num
 
-    train_size = int(0.9 * len(train))
-    validation_size = len(train) - train_size
-    train, validation = random_split(train, [train_size, validation_size])
-    train_loader = DataLoader(dataset=train,
+    # train_size = int(0.9 * len(train_il))
+    # validation_size = len(train) - train_size
+    # train, validation = random_split(train, [train_size, validation_size])
+    il_loader = DataLoader(dataset=train_il,
                               batch_size=batch_size,
                               shuffle=True,
                               num_workers=0,
                               pin_memory=True)
-    val_loader = DataLoader(dataset=validation,
-                            batch_size=batch_size,
-                            shuffle=True,
-                            num_workers=0,
-                            pin_memory=True)
+
+    pred_loader = DataLoader(
+        dataset=train_pred,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=0,
+        pin_memory=True,
+    )
+
+    # val_loader = DataLoader(dataset=validation,
+    #                         batch_size=batch_size,
+    #                         shuffle=True,
+    #                         num_workers=0,
+    #                         pin_memory=True)
+    
     test_loader = DataLoader(dataset=test,
                              batch_size=batch_size,
                              shuffle=False,
                              num_workers=0,
                              pin_memory=True)
 
-    model = NeuMF(user_num,
+    model_il = NeuMF(user_num,
                   item_num,
                   embedding_size,
                   embedding_size,
                   mlp_layers,
                   dropout=dropout)
-    #! dont knwo whether the testset has unknown user
-    #? no
-    model = model.to(device)
+    model_pred = NeuMF(user_num,
+                  item_num,
+                  embedding_size,
+                  embedding_size,
+                  mlp_layers,
+                  dropout=dropout)
+
+    model_il = model_il.to(device)
+    model_pred = model_pred.to(device)
+
     loss_func = nn.BCELoss(reduction='none')
-    # loss_func = nn.BCELoss()
-    optimizer = optim.Adam(
-        model.parameters(), lr=lr,
+    optimizer_il = optim.Adam(
+        model_il.parameters(), lr=lr,
         weight_decay=weight_decay)  #! can adjust the weight_decay
 
-    batches = len(train_loader)
+    optimizer_pred = optim.Adam(
+        model_pred.parameters(), lr=lr,
+        weight_decay=weight_decay)
+
+    batches = len(pred_loader)
 
     # patient = 20
     start_checking_epoch = 10
     writer = SummaryWriter(
         log_dir=
-        f'tensorboard/{data}_rec_with_ps_recall/{dir}/{data}/{ps_epoch}_label_smoothing_{label_smoothing}_{n_flag}'
+        f'tensorboard/{data}_rec_with_DR/{dir}/{data}/{ps_epoch}_label_smoothing_{label_smoothing}_{n_flag}'
     )
 
     for epoch in tqdm(range(1, epoch + 1)):
-        model.train()
+        model_il.train()
+        model_pred.train()
         loss_tmp = 0
         acc = []
-        for user, item, label, propensity in train_loader:
+        for user, item, label, p in il_loader:
             user = user.to(device)
             item = item.to(device)
             label = label.to(device)
-            optimizer.zero_grad()
-            prediction = model(user, item)
-            loss = loss_func(prediction, label.float())
-            InvP = torch.reciprocal(propensity)
-            InvP = InvP.to(device)
-            loss_ips = torch.sum(loss * InvP)  #! maybe sum? dont know why
-            loss_ips.backward()
-            # loss.backward()
-            optimizer.step()
+            p = p.to(device)
+            # model_il.load_state_dict(model_pred.state_dict()) # copy parameter
+            optimizer_il.zero_grad()
+            pred_il = model_il(user, item)
+            cross_entropy_il = loss_func(pred_il, label)
+            loss_il = cross_entropy_il / p
+            loss_il = torch.sum(loss_il)
+            loss_il.backward()
+            optimizer_il.step()
 
-            acc.append(accuracy(prediction, label.long()).cpu().numpy())
+        for user, item, o,  label, p in pred_loader:
+            user = user.to(device)
+            item = item.to(device)
+            label = label.to(device)
+            p = p.to(device)
+            o = o.to(device)
 
-            loss_tmp += loss_ips.item()
+            optimizer_pred.zero_grad()
+            label_il = model_il(user, item).detach()
+            pred = model_pred(user, item)
+            error_il = loss_func(pred, label_il)
+            error = loss_func(pred, label)
+            dr_loss = error_il + (error - error_il) * o / p
+            dr_loss = torch.sum(dr_loss)
+            dr_loss.backward()
+            optimizer_pred.step()
+
+            acc.append(accuracy(pred, label.long()).cpu().numpy())
+
+            loss_tmp += dr_loss.item()
         cur_acc = np.mean(acc)
         loss_tmp /= batches
         # print(f"train acc {cur_acc}")
         writer.add_scalar('train/acc', cur_acc, epoch - 1)
         writer.add_scalar('train/loss', loss_tmp, epoch - 1)
 
-        model.eval()
+        model_il.eval()
+        model_pred.eval()
+
         PRECISION = []
         predictions = torch.empty(0)
         labels = torch.empty(0)
@@ -146,7 +185,7 @@ def main():
             user = user.to(device)
             item = item.to(device)
 
-            pred = model(user, item)
+            pred = model_pred(user, item)
             predictions = torch.cat((predictions, pred.detach().cpu()))
             labels = torch.cat((labels, label))
             PRECISION.append(accuracy(pred.cpu(), label.long()).numpy())

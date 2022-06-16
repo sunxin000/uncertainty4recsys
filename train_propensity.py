@@ -1,3 +1,4 @@
+from site import check_enableusersite
 from sklearn.metrics import precision_recall_curve
 from torchmetrics.functional.classification.accuracy import accuracy
 from utils.dataset import Observe
@@ -11,7 +12,7 @@ from tqdm import tqdm
 import numpy as np
 from utils.metrics import metrics
 from model.neumf import NeuMF
-from netcal.metrics import ECE
+from netcal.metrics import ECE, MCE
 from sklearn.calibration import calibration_curve, CalibrationDisplay
 from matplotlib import pyplot as plt
 
@@ -20,7 +21,7 @@ def parse_args(**kwargs):
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', default='coat')
     parser.add_argument('--embedding_size', type=int, default=64)
-    parser.add_argument('--sample_ratio', type=int, default=-1)
+    parser.add_argument('--sample_ratio', type=int, default=1)
     parser.add_argument('--visualize', action='store_true')
     parser.add_argument('--gen_ps', action='store_true')
     parser.add_argument('--mlp_layers',
@@ -33,6 +34,7 @@ def parse_args(**kwargs):
     parser.add_argument('--dropout', type=float, default=0.2)
     parser.add_argument('--n_flag', type=int, default=0)
     parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--label_smoothing', type=float, default=0.1)
     for k, v in kwargs.items():
         parser.add_argument(k, type=v)
     return parser.parse_args()
@@ -49,12 +51,13 @@ def main():
     lr = args.lr
     dir = args.dir
     n_flag = args.n_flag
+    label_smoothing = args.label_smoothing
     # weight_decay = args.weight_decay
     writer = SummaryWriter(
         log_dir=
         f'tensorboard/{data}_ps/{embedding_size}_{mlp_layers}_{sample_ratio}_dropout_{args.dropout}')
 
-    epoch = 100 if data == "coat" else 50
+    epochs = 100 if data == "coat" else 20
 
     train = Observe(data, True, sample_ratio=sample_ratio)
     # test = Observe(data, False, sample_ratio=sample_ratio)
@@ -92,16 +95,17 @@ def main():
     model = model.to(device)
     loss_func = nn.BCELoss()
 
-    optimizer = optim.Adam(model.parameters(), lr=lr,)
+    optimizer = optim.Adam(model.parameters(), lr=lr, )
                         #    weight_decay=weight_decay)
 
-    best_hr = 0
-    len_preds = 311704 if data == 'yahoo' else 6960
+    len_preds = len(train_pos.click)
     batches = len(train_loader)
+    n_bins = 100
+    ece = ECE(n_bins)
+    mce = MCE(n_bins)
 
-    ece = ECE(bins=100)
-
-    for epoch in tqdm(range(1, epoch + 1)):
+    check_epochs = 5 if data=='yahoo' else 10
+    for epoch in tqdm(range(1, epochs + 1)):
         best_acc = 0
         model.train()
         loss_tmp = 0
@@ -114,7 +118,8 @@ def main():
             label = label.to(device)
             optimizer.zero_grad()
             prediction = model(user, item)
-            loss = loss_func(prediction, label.float())
+            label_float = label.float() * (1.0 - label_smoothing) + 0.5 * label_smoothing
+            loss = loss_func(prediction, label_float)
             loss.backward()
             optimizer.step()
             acc.append(accuracy(prediction, label).cpu().numpy())
@@ -137,19 +142,26 @@ def main():
         _, _, acc = metrics(model, val_loader, 2, device)
         writer.add_scalar('test_acc', acc, epoch - 1)
 
-        if epoch % 10 == 0:
+        if epoch % check_epochs == 0:
             # display
-            torch.save({'net': model.state_dict()}, f"saved_propensity_model/{data}/{dir}/neumf_{sample_ratio}_{epoch}_{n_flag}_with_seed.ckpt")
+            # torch.save({'net': model.state_dict()}, f"saved_propensity_model/{data}/{dir}/neumf_{sample_ratio}_{epoch}_{n_flag}_with_seed_label_smoothing.ckpt")
+            ece_res = ece.measure(preds, labels)
+            mce_res = mce.measure(preds, labels)
+            with open('thesis/ece.txt', 'a+') as file:
+                file.write(f'ece for {epoch} is {ece_res:.4f}')
+                file.write('\n')
+            with open('thesis/mce.txt', 'a+') as file:
+                file.write(f'mce for {epoch} is {mce_res:.4f}')
+                file.write('\n')
             if args.visualize:
                 disp = CalibrationDisplay.from_predictions(labels,
                                                         preds,
-                                                        n_bins=20,
-                                                        strategy='quantile')
-                title = f'{data}_{sample_ratio}_{embedding_size}_{mlp_layers}'
-                plt.title(title)
-                plt.savefig(f"pic/coat/small/{sample_ratio}_neumf_{epoch}_20_quantile_dropout{args.dropout}.jpg")
+                                                        # strategy='quantile',
+                                                        n_bins=20, label='Propensity model')
+                                                        # strategy='quantile')
+                plt.savefig(f"pic/{data}/{sample_ratio}_neumf_{epoch}_20_dropout{args.dropout}_label_smoothing_{label_smoothing}.jpg")
             # generate the propensity
-            if args.gen_ps:
+            if args.gen_ps and epoch==epochs:
                 predictions = np.zeros(len_preds)
                 with torch.no_grad():
                     for index, (user, item,
@@ -163,7 +175,7 @@ def main():
 
                 torch.save(
                     predictions,
-                    f"data/propensity/{dir}/{data}_epoch_{epoch}_{sample_ratio}_dropout_{args.dropout}.pt")
+                    f"data/propensity/{dir}/{data}_epoch_{epoch}_{sample_ratio}_dropout_{args.dropout}_label_smoothing_{label_smoothing}.pt")
 
     writer.flush()
     writer.close()

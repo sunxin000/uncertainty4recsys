@@ -11,5 +11,5 @@
 
 
 for epoch in {10..100..10}; do
-    python calib.py --epoch $epoch --flag ensemble
+    python propensity_analysis.py --epoch $epoch 
 done

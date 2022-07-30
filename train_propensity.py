@@ -59,7 +59,7 @@ def main():
 
     epochs = 100 if data == "coat" else 20
 
-    train = Observe(data, True, sample_ratio=sample_ratio)
+    train = Observe(data, True, sample_ratio=sample_ratio, seed=0)
     # test = Observe(data, False, sample_ratio=sample_ratio)
     train_pos = Observe(data, True, sample_ratio=sample_ratio)
 

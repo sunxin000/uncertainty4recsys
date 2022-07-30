@@ -1,3 +1,4 @@
+from unittest import result
 import numpy as np
 from tqdm import tqdm
 import argparse
@@ -6,11 +7,12 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
 from torchmetrics.functional.classification.accuracy import accuracy
-from torch.utils.tensorboard import SummaryWriter
+# from torch.utils.tensorboard import SummaryWriter
 from utils.metrics import dcg_at_k, recall_at_k
 from model.neumf import NeuMF
+from model.MF import MF
 from utils.dataset import ObservedData
-
+from multiprocessing import Pool
 
 def parse_args(**kwargs):
     parser = argparse.ArgumentParser()
@@ -30,6 +32,7 @@ def parse_args(**kwargs):
     parser.add_argument("--epoch", type=int, default=200)
     parser.add_argument("--label_smoothing", type=float, default=0.1)
     parser.add_argument('--path')
+    parser.add_argument("--seed")
     for k, v in kwargs.items():
         parser.add_argument(k, type=v)
     return parser.parse_args()
@@ -46,18 +49,21 @@ def main():
     embedding_size = args.embedding_size
     data = args.dataset
     sample_ratio = args.sample_ratio
-    epoch = args.epoch if data == "coat" else 10
-    ps_epoch = args.ps_epoch
+    epoch = args.epoch if data == "coat" else 5
+    # ps_epoch = args.ps_epoch
     weight_decay = args.weight_decay
-    label_smoothing = args.label_smoothing
-
+    # label_smoothing = args.label_smoothing
+    torch.manual_seed(args.seed)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
+    best_ce = 1000
     items_per_user = 16 if data == "coat" else 10
     dir = args.dir
-    propensity = torch.load(
-        f'data/propensity/raw/{data}_epoch_{ps_epoch}_1_dropout_0.2_label_smoothing_{label_smoothing}.pt'
-    )
+    # propensity = torch.load(
+    #     f'data/propensity/raw/{data}_epoch_{ps_e/data/sunxin/uncertainty4recsys/propensity/label_smoothingpoch}_1_dropout_0.2_label_smoothing_{label_smoothing}.pt'
+    # )
+
+    propensity = torch.load(args.path)
+
     train = ObservedData(data,
                          train=True,
                          implicit=True,
@@ -67,19 +73,19 @@ def main():
     test = ObservedData(data, train=False, implicit=True)
     user_num, item_num = train.user_num, train.item_num
 
-    train_size = int(0.9 * len(train))
-    validation_size = len(train) - train_size
-    train, validation = random_split(train, [train_size, validation_size])
+    # train_size = int(0.9 * len(train))
+    # validation_size = len(train) - train_size
+    # train, validation = random_split(train, [train_size, validation_size])
     train_loader = DataLoader(dataset=train,
                               batch_size=batch_size,
                               shuffle=True,
                               num_workers=0,
                               pin_memory=True)
-    val_loader = DataLoader(dataset=validation,
-                            batch_size=batch_size,
-                            shuffle=True,
-                            num_workers=0,
-                            pin_memory=True)
+    # val_loader = DataLoader(dataset=validation,
+    #                         batch_size=batch_size,
+    #                         shuffle=True,
+    #                         num_workers=0,
+    #                         pin_memory=True)
     test_loader = DataLoader(dataset=test,
                              batch_size=batch_size,
                              shuffle=False,
@@ -92,6 +98,7 @@ def main():
                   embedding_size,
                   mlp_layers,
                   dropout=dropout)
+    # model = MF(user_num, item_num, embedding_size)
     #! dont knwo whether the testset has unknown user
     #? no
     model = model.to(device)
@@ -105,12 +112,16 @@ def main():
 
     # patient = 20
     start_checking_epoch = 10
-    writer = SummaryWriter(
-        log_dir=
-        f'tensorboard/{data}_rec_with_ps_recall/{dir}/{data}/{ps_epoch}_label_smoothing_{label_smoothing}_{n_flag}'
-    )
+    suffix = f'_{args.n_flag}' if args.n_flag > 0 else ''
 
-    for epoch in tqdm(range(1, epoch + 1)):
+    # writer = SummaryWriter(
+    #     log_dir=
+    #     f'tb_result/{data}_rec_with_ps_recall/{dir}/{data}/NEUMF{suffix}'#mc_{ps_epoch}_label_smoothing_{label_smoothing}_{n_flag}_new'
+    # )
+
+    end_epoch = epoch
+    check_epoch = 200 if data == 'coat' else 1
+    for epoch in tqdm(range(1, end_epoch + 1)):
         model.train()
         loss_tmp = 0
         acc = []
@@ -134,47 +145,46 @@ def main():
         cur_acc = np.mean(acc)
         loss_tmp /= batches
         # print(f"train acc {cur_acc}")
-        writer.add_scalar('train/acc', cur_acc, epoch - 1)
-        writer.add_scalar('train/loss', loss_tmp, epoch - 1)
+        # writer.add_scalar('train/acc', cur_acc, epoch - 1)
+        # writer.add_scalar('train/loss', loss_tmp, epoch - 1)
 
-        model.eval()
-        PRECISION = []
-        predictions = torch.empty(0)
-        labels = torch.empty(0)
+        if epoch == check_epoch:
+            model.eval()
+            predictions = torch.empty(0)
+            labels = torch.empty(0)
 
-        for user, item, label in test_loader:
-            user = user.to(device)
-            item = item.to(device)
+            for user, item, label in test_loader:
+                user = user.to(device)
+                item = item.to(device)
 
-            pred = model(user, item)
-            predictions = torch.cat((predictions, pred.detach().cpu()))
-            labels = torch.cat((labels, label))
-            PRECISION.append(accuracy(pred.cpu(), label.long()).numpy())
+                pred = model(user, item)
+                predictions = torch.cat((predictions, pred.detach().cpu()))
+                labels = torch.cat((labels, label))
 
-        dcg = dcg_at_k(labels,
-                       predictions,
-                       test.user_num,
-                       items_per_user=items_per_user)
-        recall = recall_at_k(labels, predictions, test.user_num,
-                             items_per_user)
-        for k in [2, 4, 6]:
-            writer.add_scalar(f'test/dcg_at_{k}', dcg[k // 2 - 1], epoch - 1)
-            writer.add_scalar(f'test/recall_at_{k}', recall[k // 2 - 1],
-                              epoch - 1)
-        acc = np.mean(PRECISION)
-        writer.add_scalar('test/acc', acc, epoch - 1)
-        # print(f"acc {acc:.3f}")
-        # print("Epoch:", epoch, "DCG@2,4,6:", dcg)
-
-        # if epoch > start_checking_epoch and acc > best_acc:
-
-        #     state = {
-        #         'net': model.state_dict(),
-        #         'acc': acc,
-        #         'epoch': epoch,
-        #     }
-        #     torch.save(state,  f"saved_propensity_model/neumf_propensity_{data}.ckpt")
+            dcg = dcg_at_k(labels,
+                        predictions,
+                        test.user_num,
+                        items_per_user=items_per_user)
+            recall = recall_at_k(labels, predictions, test.user_num,
+                                items_per_user)
+            # for k in [2, 4, 6]:
+            #     writer.add_scalar(f'test/dcg_at_{k}', dcg[k // 2 - 1], epoch - 1)
+            #     writer.add_scalar(f'test/recall_at_{k}', recall[k // 2 - 1],
+            #                     epoch - 1)
+            with open(f'results/{data}_{dir}.txt', 'a') as f:
+                for i in range(3):
+                    f.write(str(dcg[i]))
+                    f.write(' ')
+                for i in range(3):
+                    f.write(str(recall[i]))
+                    f.write(' ')
+                f.write('\n')
+    return dcg, recall
 
 
 if __name__ == "__main__":
     main()
+
+
+    
+

@@ -1,0 +1,6 @@
+mce for raw_coat is 0.7132
+mce for dropout_coat is 0.5653
+mce for ensemble_coat is 0.6348
+mce for ls_coat is 0.5853
+mce for ls+drop_coat is 0.5363
+mce for ls+ensemble_coat is 0.6228

@@ -10,10 +10,11 @@ import numpy as np
 # from tensorflow_probability.python.stats import expected_calibration_error as ece 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', default='coat')
+    parser.add_argument('--dataset', default='yahoo')
     parser.add_argument('--sample_ratio', type=int, default=1)
     parser.add_argument('--epoch', type=int, default=0)
-    parser.add_argument('--flag', default='raw')
+    parser.add_argument('--dir', default='raw')
+    parser.add_argument('--path', )
     return parser.parse_args()
 def main():
     args = parse_args()
@@ -22,12 +23,11 @@ def main():
     epoch = args.epoch
     # path = f'data/propensity/ensemble/{sample_ratio}_{epoch}.pt'
     # path = f'data/propensity/raw/-1.pt'
-    name = 'coat_epoch_100_1_dropout_0.2_label_smoothing_0.0.pt'
-    dir = 'raw'
-    path = 'data/propensity/' + dir + '/' + name
+    dir = args.dir
+    path = args.path
 
     if dir == 'raw': label = 'Uncalibrated propensity model'
-    else: label = 'ensemble-calibrated' if dir == 'deep_ensemble' else 'dropout-calibrated'
+    else: label = f'{dir} calibrated'
 
 
     predictions = torch.load(path)
@@ -50,15 +50,16 @@ def main():
     #     pred = model(user, item)
     #     predictions = torch.cat((predictions, pred.cpu()))
     #     y_true = torch.cat((y_true, label))
-
+    epsilon = np.finfo(float).eps
+    predictions = np.clip(predictions, epsilon, 1-epsilon)
     labels = np.asarray(y_true, dtype=np.int32)
     preds = np.asarray(predictions)
-    disp = CalibrationDisplay.from_predictions(labels, preds, n_bins=20, label=label) #  strategy='quantile')
+    disp = CalibrationDisplay.from_predictions(labels, preds, n_bins=20, label=label,  strategy='quantile')
     plt.legend(loc='upper left')
     # title = f'{args.flag}_{data}_{sample_ratio}_{epoch}'
     # plt.title(title)
     # plt.savefig(f"pic/{args.flag}/{title}.jpg")
-    plt.savefig(f'thesis/pic/{dir}_{name}.jpg')
+    plt.savefig(f'results/pic/{dir}_{data}.jpg')
 
     n_bins = 100
     ece = ECE(n_bins)
@@ -66,11 +67,11 @@ def main():
 
     ece_res = ece.measure(preds, labels)
     mce_res = mce.measure(preds, labels)
-    with open('thesis/ece.txt', 'a+') as file:
-        file.write(f'ece for {dir}_{name} is {ece_res:.4f}')
+    with open(f'results/calibration_error/ece_{data}.txt', 'a+') as file:
+        file.write(f'ece for {dir}_{data} is {ece_res:.4f}')
         file.write('\n')
-    with open('thesis/mce.txt', 'a+') as file:
-        file.write(f'mce for {dir}_{name} is {mce_res:.4f}')
+    with open(f'results/calibration_error/mce_{data}.txt', 'a+') as file:
+        file.write(f'mce for {dir}_{data} is {mce_res:.4f}')
         file.write('\n')
     # logits = np.vstack((1-predictions, predictions)).T
     # logits =np.asarray(logits, dtype=np.float32)

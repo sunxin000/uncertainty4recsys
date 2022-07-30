@@ -7,8 +7,9 @@ from torch.utils.data import DataLoader, random_split
 import numpy as np
 from torchmetrics.functional.classification.accuracy import accuracy
 
-from torch.utils.tensorboard import SummaryWriter
+# from torch.utils.tensorboard import SummaryWriter
 from model.neumf import NeuMF
+from model.MF import MF
 
 from utils.metrics import metrics, dcg_at_k, recall_at_k
 from utils.dataset import ObservedData
@@ -23,6 +24,7 @@ def parse_args():
     parser.add_argument("--n_flag", type=int, default=0)
     parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--epoch", type=int, default=200)
+    parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
     return args
 
@@ -42,7 +44,8 @@ def main():
     # embedding_size = 128 if data == 'coat' else 64
     mlp_layers = [64, 32, 16]
     embedding_size = 64
-
+    check_epoch = 200 if data=='coat' else 1
+    torch.manual_seed(args.seed)
     train = ObservedData(data, train=True, implicit=True)
     # train = ObservedData(data, train=True, implicit=True)
     test = ObservedData(data, train=False, implicit=True)
@@ -79,9 +82,9 @@ def main():
     loss_func = nn.BCELoss()
     batches = len(train_loader)
     # patient = 20
-    suffix = f'_{args.n_flag}' if args.n_flag > 0 else ''
-    writer = SummaryWriter(
-        log_dir=f'tensorboard/{data}_benchmark_recall/weight_decay_{weight_decay}_lr_{lr}_dropout_{dropout}_{suffix}')
+    # suffix = f'_{args.n_flag}' if args.n_flag > 0 else ''
+    # writer = SummaryWriter(
+    #     log_dir=f'tb_result/{data}_benchmark_recall/NEUMF{suffix}')
 
     for epoch in tqdm.tqdm(range(1, epoch + 1)):
         # with profiler.profile(enabled=True, use_cuda=True, record_shapes=False, profile_memory=False) as prof:
@@ -99,36 +102,45 @@ def main():
             acc.append(accuracy(prediction, label.long()).cpu().numpy())
             loss_tmp += loss.item()
         loss_tmp /= batches
-        cur_acc = np.mean(acc)
-        writer.add_scalar('train/acc', cur_acc, epoch - 1)
-        writer.add_scalar('train/loss', loss_tmp, epoch - 1)
+        # cur_acc = np.mean(acc)
+        # writer.add_scalar('train/acc', cur_acc, epoch - 1)
+        # writer.add_scalar('train/loss', loss_tmp, epoch - 1)
+        if epoch == check_epoch:
+            model.eval()
 
-        model.eval()
+            # PRECISION = []
+            predictions = torch.empty(0)
+            labels = torch.empty(0)
+            for user, item, label in test_loader:
+                user, item = user.cuda(), item.cuda()
+                pred = model(user, item)
+                predictions = torch.cat((predictions, pred.detach().cpu()))
+                labels = torch.cat((labels, label))
+                # PRECISION.append(accuracy(pred.cpu(), label.long()).numpy())
 
-        PRECISION = []
-        predictions = torch.empty(0)
-        labels = torch.empty(0)
-        for user, item, label in test_loader:
-            user, item = user.cuda(), item.cuda()
-            pred = model(user, item)
-            predictions = torch.cat((predictions, pred.detach().cpu()))
-            labels = torch.cat((labels, label))
-            PRECISION.append(accuracy(pred.cpu(), label.long()).numpy())
+            dcg = dcg_at_k(labels,
+                        predictions,
+                        test.user_num,
+                        items_per_user=items_per_user)
+            recall = recall_at_k(
+                labels,
+                predictions,
+                test.user_num,
+                items_per_user)
 
-        dcg = dcg_at_k(labels,
-                       predictions,
-                       test.user_num,
-                       items_per_user=items_per_user)
-        recall = recall_at_k(
-            labels,
-            predictions,
-            test.user_num,
-            items_per_user)
-        for k in [2, 4, 6]:
-            writer.add_scalar(f'test/dcg_at_{k}', dcg[k//2-1], epoch-1) 
-            writer.add_scalar(f'test/recall_at_{k}', recall[k//2-1], epoch-1)
-        acc = np.mean(PRECISION)
-        writer.add_scalar('test/acc', acc, epoch-1)
+            with open(f'results/{data}_bench.txt', 'a') as f:
+                for i in range(3):
+                    f.write(str(dcg[i]))
+                    f.write(' ')
+                for i in range(3):
+                    f.write(str(recall[i]))
+                    f.write(' ')
+                f.write('\n')
+        # for k in [2, 4, 6]:
+        #     writer.add_scalar(f'test/dcg_at_{k}', dcg[k//2-1], epoch-1) 
+        #     writer.add_scalar(f'test/recall_at_{k}', recall[k//2-1], epoch-1)
+        # acc = np.mean(PRECISION)
+        # writer.add_scalar('test/acc', acc, epoch-1)
         # if epoch > start_checking_epoch and acc > best_acc:
 
         #     state = {

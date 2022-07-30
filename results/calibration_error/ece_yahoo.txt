@@ -1,0 +1,6 @@
+ece for raw_yahoo is 0.1131
+ece for dropout_yahoo is 0.1064
+ece for ensemble_yahoo is 0.1028
+ece for ls_yahoo is 0.1099
+ece for ls+drop_yahoo is 0.1063
+ece for ls+ensemble_yahoo is 0.1085

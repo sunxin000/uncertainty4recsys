@@ -38,12 +38,12 @@ def main():
                               num_workers=0,
                               pin_memory=True)
     paths = [
-        f'saved_propensity_model/coat/ensemble/neumf_-1_{args.epoch}_{i}_with_seed.ckpt'
-        for i in range(1, n_model + 1)
+        f'propensity/saved_model/{data}_ensemble_neumf_1_20_{i}_ls_0.02.ckpt'
+        for i in range(40, n_model + 40)
     ]
     mlp_layer = args.mlp_layers
     model = NeuMF(user_num, item_num, embedding_size, embedding_size,
-                  mlp_layer)
+                  mlp_layer, dropout=0.2)
     len_preds = len(train)
     predictions = torch.zeros(len_preds, )
     model.eval()
@@ -58,10 +58,10 @@ def main():
                     (index + 1) * batch_size, len(predictions))] += pred
 
     torch.save(predictions.detach(),
-               f"data/propensity/ensemble/{sample_ratio}_{args.epoch}.pt")
-    predictions = np.array(predictions.detach())
-    np.savetxt(f"data/propensity/ensemble/{sample_ratio}_{args.epoch}.txt",
-               predictions)
+               f"propensity/ls+ensemble/{data}.pt")
+    # predictions = np.array(predictions.detach())
+    # np.savetxt(f"data/propensity/ensemble/{sample_ratio}_{args.epoch}.txt",
+    #            predictions)
 
 
 if __name__ == "__main__":

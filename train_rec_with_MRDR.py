@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
 from torchmetrics.functional.classification.accuracy import accuracy
-from torch.utils.tensorboard import SummaryWriter
+# from torch.utils.tensorboard import SummaryWriter
 from utils.metrics import dcg_at_k, recall_at_k
 from model import NeuMF, MF
 from utils.dataset import Observe, ObservedData
@@ -37,6 +37,7 @@ def parse_args(**kwargs):
 
 def main():
     args = parse_args()
+    torch.manual_seed(args.n_flag)
     batch_size = 1024
     dropout = args.dropout
     n_flag = args.n_flag
@@ -53,6 +54,7 @@ def main():
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     items_per_user = 16 if data == "coat" else 10
     dir = args.dir
+    check_epoch=200 if data=='coat' else 1
     propensity = torch.load(
         f'data/propensity/raw/{data}_epoch_{ps_epoch}_1_dropout_0.2_label_smoothing_{label_smoothing}.pt'
     )
@@ -95,18 +97,21 @@ def main():
                              num_workers=0,
                              pin_memory=True)
 
-    model_il = NeuMF(user_num,
-                  item_num,
-                  embedding_size,
-                  embedding_size,
-                  mlp_layers,
-                  dropout=dropout)
-    model_pred = NeuMF(user_num,
-                  item_num,
-                  embedding_size,
-                  embedding_size,
-                  mlp_layers,
-                  dropout=dropout)
+    # model_il = NeuMF(user_num,
+    #               item_num,
+    #               embedding_size,
+    #               embedding_size,
+    #               mlp_layers,
+    #               dropout=dropout)
+    # model_pred = NeuMF(user_num,
+    #               item_num,
+    #               embedding_size,
+    #               embedding_size,
+    #               mlp_layers,
+    #               dropout=dropout)
+
+    model_il = MF(user_num, item_num, embedding_size)
+    model_pred = MF(user_num, item_num, embedding_size)
 
     model_il = model_il.to(device)
     model_pred = model_pred.to(device)
@@ -124,10 +129,10 @@ def main():
 
     # patient = 20
     start_checking_epoch = 10
-    writer = SummaryWriter(
-        log_dir=
-        f'tensorboard/{data}_rec_with_MRDR/{dir}/{data}/{ps_epoch}_label_smoothing_{label_smoothing}_{n_flag}'
-    )
+    # writer = SummaryWriter(
+    #     log_dir=
+    #     f'tensorboard/{data}_rec_with_MRDR/{dir}/{data}/{ps_epoch}_label_smoothing_{label_smoothing}_{n_flag}'
+    # )
 
     for epoch in tqdm(range(1, epoch + 1)):
         model_il.train()
@@ -173,37 +178,47 @@ def main():
         cur_acc = np.mean(acc)
         loss_tmp /= batches
         # print(f"train acc {cur_acc}")
-        writer.add_scalar('train/acc', cur_acc, epoch - 1)
-        writer.add_scalar('train/loss', loss_tmp, epoch - 1)
+        # writer.add_scalar('train/acc', cur_acc, epoch - 1)
+        # writer.add_scalar('train/loss', loss_tmp, epoch - 1)
+        if epoch==check_epoch:
+            model_il.eval()
+            model_pred.eval()
 
-        model_il.eval()
-        model_pred.eval()
+            PRECISION = []
+            predictions = torch.empty(0)
+            labels = torch.empty(0)
 
-        PRECISION = []
-        predictions = torch.empty(0)
-        labels = torch.empty(0)
+            for user, item, label in test_loader:
+                user = user.to(device)
+                item = item.to(device)
 
-        for user, item, label in test_loader:
-            user = user.to(device)
-            item = item.to(device)
+                pred = model_pred(user, item)
+                predictions = torch.cat((predictions, pred.detach().cpu()))
+                labels = torch.cat((labels, label))
+                PRECISION.append(accuracy(pred.cpu(), label.long()).numpy())
 
-            pred = model_pred(user, item)
-            predictions = torch.cat((predictions, pred.detach().cpu()))
-            labels = torch.cat((labels, label))
-            PRECISION.append(accuracy(pred.cpu(), label.long()).numpy())
+            dcg = dcg_at_k(labels,
+                        predictions,
+                        test.user_num,
+                        items_per_user=items_per_user)
+            recall = recall_at_k(labels, predictions, test.user_num,
+                                items_per_user)
 
-        dcg = dcg_at_k(labels,
-                       predictions,
-                       test.user_num,
-                       items_per_user=items_per_user)
-        recall = recall_at_k(labels, predictions, test.user_num,
-                             items_per_user)
-        for k in [2, 4, 6]:
-            writer.add_scalar(f'test/dcg_at_{k}', dcg[k // 2 - 1], epoch - 1)
-            writer.add_scalar(f'test/recall_at_{k}', recall[k // 2 - 1],
-                              epoch - 1)
-        acc = np.mean(PRECISION)
-        writer.add_scalar('test/acc', acc, epoch - 1)
+            with open(f'results/MF_{data}_MRDR_{dir}.txt', 'a') as f:
+                for i in range(3):
+                    f.write(str(dcg[i]))
+                    f.write(' ')
+                for i in range(3):
+                    f.write(str(recall[i]))
+                    f.write(' ')
+                f.write('\n')
+        
+            # for k in [2, 4, 6]:
+            #     writer.add_scalar(f'test/dcg_at_{k}', dcg[k // 2 - 1], epoch - 1)
+            #     writer.add_scalar(f'test/recall_at_{k}', recall[k // 2 - 1],
+            #                     epoch - 1)
+            # acc = np.mean(PRECISION)
+            # writer.add_scalar('test/acc', acc, epoch - 1)
         # print(f"acc {acc:.3f}")
         # print("Epoch:", epoch, "DCG@2,4,6:", dcg)
 

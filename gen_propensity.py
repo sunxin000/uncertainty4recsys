@@ -5,15 +5,18 @@ from utils.dataset import Observe
 import matplotlib.pyplot as plt
 import argparse
 import numpy as np
-
+from sklearn.model_selection import KFold
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", default="coat")
+    parser.add_argument("--dataset", default="yahoo")
     parser.add_argument("--embedding_size", type=int, default=64)
     parser.add_argument('--mlp_layers', nargs='*', type=int, default=[64, 32, 16])
     parser.add_argument("--sample_ratio", type=int, default=-1)
     parser.add_argument("--dropout", action='store_true')
+    parser.add_argument("--dropout_rate", type=float, default=0.2)
     parser.add_argument("--n_inferences", type=int, default=1)
+    parser.add_argument("--n_flod", default=5)
+    parser.add_argument('--dir')
     args = parser.parse_args()
     return args
 
@@ -25,8 +28,7 @@ def main():
     dropout = args.dropout
     n_inferences = args.n_inferences
     batch_size = 1024
-    path = f'saved_propensity_model/coat/ensemble/neumf_-1_100_5_with_seed.ckpt'
-
+    path = 'propensity/saved_model/neumf_1_100_0_with_seed_label_smoothing_0.1.ckpt'
 
     train = Observe(data, True, sample_ratio=sample_ratio)
     user_num = train.user_num
@@ -36,17 +38,16 @@ def main():
     lr = 1e-3
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     mlp_layer = args.mlp_layers
-    model = NeuMF(user_num, item_num,  embedding_size, embedding_size, mlp_layer)
+    model = NeuMF(user_num, item_num,  embedding_size, embedding_size, mlp_layer, dropout=args.dropout_rate)
     checkpoint = torch.load(path)
     model.load_state_dict(checkpoint['net'])
     
     
     len_preds = len(train)
     predictions = torch.zeros(len_preds,)
-    if not dropout:
-        model.eval()
-    else:
-        model.train()
+    model.eval()
+    if dropout:
+        model.dropout_layer.train()
 
     with torch.no_grad():
         for i in range(n_inferences):
@@ -55,10 +56,10 @@ def main():
                 pred = pred / n_inferences
                 predictions[index * batch_size: min((index + 1) * batch_size, len(predictions))] += pred
 
-    dir = 'dropout' if dropout else 'raw'
-    torch.save(predictions.detach(), f"data/propensity/{dir}/{sample_ratio}.pt")
+    dir = args.dir
+    torch.save(predictions.detach(), f"propensity/{dir}/{data}_{sample_ratio}_{n_inferences}.pt")
     predictions = np.array(predictions.detach())
-    np.savetxt(f"data/propensity/{dir}/{sample_ratio}.txt", predictions)
+    np.savetxt(f"propensity/{dir}/{data}_{sample_ratio}.txt", predictions)
 
 if __name__ == "__main__":
     main()

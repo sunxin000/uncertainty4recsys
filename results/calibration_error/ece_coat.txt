@@ -1,0 +1,6 @@
+ece for raw_coat is 0.1458
+ece for dropout_coat is 0.1369
+ece for ensemble_coat is 0.1577
+ece for ls_coat is 0.1360
+ece for ls+drop_coat is 0.1280
+ece for ls+ensemble_coat is 0.2001

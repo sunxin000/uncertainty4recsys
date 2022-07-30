@@ -80,7 +80,8 @@ class Observe(Dataset):
                  train=True,
                  sample_ratio=4,
                  eib=False,
-                 propensity=None,) -> None:  #TODO: change the sample rate
+                 propensity=None,
+                 seed=None) -> None:  #TODO: change the sample rate
         super().__init__()
         user, item, label = load_data(dataset, train)
         self.user_num = np.max(user) + 1
@@ -114,6 +115,8 @@ class Observe(Dataset):
 
         else:
             self.missing_num = min(missing_num, sample_ratio * len(user))
+            if seed: np.random.seed(seed)
+            # np.random.seed(0)
             index = np.random.choice(missing_num,
                                      self.missing_num,
                                      replace=True)

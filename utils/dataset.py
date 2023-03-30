@@ -115,7 +115,7 @@ class Observe(Dataset):
 
         else:
             self.missing_num = min(missing_num, sample_ratio * len(user))
-            if seed: np.random.seed(seed)
+            if seed is not None: np.random.seed(seed)
             # np.random.seed(0)
             index = np.random.choice(missing_num,
                                      self.missing_num,

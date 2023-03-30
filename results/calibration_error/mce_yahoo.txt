@@ -1,6 +1,0 @@
-mce for raw_yahoo is 0.6135
-mce for dropout_yahoo is 0.4524
-mce for ensemble_yahoo is 0.6200
-mce for ls_yahoo is 0.5664
-mce for ls+drop_yahoo is 0.4576
-mce for ls+ensemble_yahoo is 0.6073

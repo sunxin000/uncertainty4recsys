@@ -25,6 +25,15 @@ class MF(nn.Module):
         self.user_bias.weight.data.fill_(0.)
         self.item_bias.weight.data.fill_(0.)
         self.global_bias = nn.Parameter(torch.FloatTensor([0.]), requires_grad=True)
+        self.apply(self._init_weights)
+
+    def _init_weights(self, module):
+        if isinstance(module, nn.Embedding):
+            normal_(module.weight.data, mean=0.0, std=1.0)
+        if isinstance(module, nn.Parameter):
+            normal_(module.weight.data, mean=0.0, std=1.0)
+
+
 
     def forward(self, user, item):
         user_e = self.user_embedding(user)

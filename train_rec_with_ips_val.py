@@ -30,7 +30,6 @@ def parse_args(**kwargs):
     parser.add_argument("--dir", default='raw')
     parser.add_argument("--epoch", type=int, default=200)
     parser.add_argument("--label_smoothing", type=float, default=0.1)
-    parser.add_argument('--path')
     parser.add_argument("--seed")
     for k, v in kwargs.items():
         parser.add_argument(k, type=v)
@@ -54,14 +53,12 @@ def main():
     label_smoothing = args.label_smoothing
     torch.manual_seed(args.seed)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    best_ce = 1000
+    best_ce = 1000000
     items_per_user = 16 if data == "coat" else 10
     dir = args.dir
-    # propensity = torch.load(
-    #     f'data/propensity/raw/{data}_epoch_{ps_e/data/sunxin/uncertainty4recsys/propensity/label_smoothingpoch}_1_dropout_0.2_label_smoothing_{label_smoothing}.pt'
-    # )
-
-    propensity = torch.load(args.path)
+    propensity = torch.load(
+        f'propensity/{dir}/{data}.pt'
+    )
 
     train = ObservedData(data,
                          train=True,
@@ -96,7 +93,7 @@ def main():
                   embedding_size,
                   embedding_size,
                   mlp_layers,
-                  dropout=dropout)
+                  dropout=0)
     # model = MF(user_num, item_num, embedding_size)
     #! dont knwo whether the testset has unknown user
     #? no
@@ -161,7 +158,7 @@ def main():
             labels = torch.cat((labels, label))
             propensities = torch.cat((propensities, propensity))
         
-        ce = torch.sum(loss_func(predictions, labels.float())) # * torch.reciprocal(propensities))
+        ce = torch.mean(loss_func(predictions, labels.float()))# * torch.reciprocal(propensities))
         writer.add_scalar('val_ce', ce, epoch-1)
         if ce < best_ce:
             predictions = torch.empty(0)

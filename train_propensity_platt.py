@@ -34,7 +34,7 @@ def parse_args(**kwargs):
     parser.add_argument('--dropout', type=float, default=0.2)
     parser.add_argument('--n_flag', type=int, default=0)
     parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument('--label_smoothing', type=float, default=0.1)
+    parser.add_argument('--label_smoothing', type=float, default=0.0)
     for k, v in kwargs.items():
         parser.add_argument(k, type=v)
     return parser.parse_args()
@@ -69,7 +69,8 @@ def main():
                   embedding_size,
                   embedding_size,
                   mlp_layers,
-                  dropout=args.dropout)
+                  dropout=args.dropout,
+                  output_logits=True)
 
     # print(len(train))
     train_size = int(0.9 * len(train))
@@ -93,7 +94,7 @@ def main():
     #! dont knwo whether the testset has unknown user
     #? no
     model = model.to(device)
-    loss_func = nn.BCELoss()
+    loss_func = nn.BCEWithLogitsLoss()
 
     optimizer = optim.Adam(model.parameters(), lr=lr, )
                         #    weight_decay=weight_decay)
@@ -101,8 +102,6 @@ def main():
     len_preds = len(train_pos.click)
     batches = len(train_loader)
     n_bins = 100
-    ece = ECE(n_bins)
-    mce = MCE(n_bins)
 
     check_epochs = 20 if data=='yahoo' else 100
     for epoch in tqdm(range(1, epochs + 1)):
@@ -120,7 +119,7 @@ def main():
             prediction = model(user, item)
             label_float = label.float() * (1.0 - label_smoothing) + 0.5 * label_smoothing
             loss = loss_func(prediction, label_float)
-            # loss = (1-label_smoothing) * loss + label_smoothing * loss_func( torch.full_like(prediction, 0.5), preditions)
+            # loss = (1-label_smoothing) * loss + label_smoothing * loss_func(prediction, torch.full_like(prediction, 0.5))
             loss.backward()
             optimizer.step()
             acc.append(accuracy(prediction, label).cpu().numpy())
@@ -145,7 +144,7 @@ def main():
 
         if epoch % check_epochs == 0:
             # display
-            torch.save({'net': model.state_dict()}, f"propensity/saved_model/{data}_{dir}_neumf_{sample_ratio}_{epoch}_{n_flag}_ls_{label_smoothing}.ckpt")
+            torch.save({'net': model.state_dict()}, f"propensity/saved_model/logits_model/logits_{data}_ls.ckpt")
             # ece_res = ece.measure(preds, labels)
             # mce_res = mce.measure(preds, labels)
             # with open('thesis/ece.txt', 'a+') as file:

@@ -7,6 +7,7 @@ def calculate_confidence_interval(array):
     mean = np.mean(array, axis=-1)
     print(mean)
     std = np.std(array, axis=-1)
+    print(std)
     # std = np.std(array, axis=-1,  ddof=1)
     # interval = stats.t.interval(alpha=0.95, df=len(array)-1, loc=mean, scale=std, )
 

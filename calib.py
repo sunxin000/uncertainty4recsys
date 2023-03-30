@@ -7,6 +7,8 @@ from utils.dataset import Observe
 import matplotlib.pyplot as plt
 from netcal.metrics import ECE, MCE
 import numpy as np
+
+
 # from tensorflow_probability.python.stats import expected_calibration_error as ece 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -31,7 +33,7 @@ def main():
 
 
     predictions = torch.load(path)
-    train = Observe(data, True, sample_ratio=sample_ratio) #! the sample ratio can change
+    train = Observe(data, True, sample_ratio=sample_ratio, seed=0) #! the sample ratio can change
     y_true = train.click
     # user_num = train.user_num
     # item_num = train.item_num

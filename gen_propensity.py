@@ -28,7 +28,7 @@ def main():
     dropout = args.dropout
     n_inferences = args.n_inferences
     batch_size = 1024
-    path = 'propensity/saved_model/neumf_1_100_0_with_seed_label_smoothing_0.1.ckpt'
+    path = '/data/sunxin/uncertainty4recsys/propensity/saved_model/yahoo_ls_neumf_1_20_0_ls_0.1.ckpt'
 
     train = Observe(data, True, sample_ratio=sample_ratio)
     user_num = train.user_num

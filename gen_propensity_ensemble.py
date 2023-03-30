@@ -38,7 +38,7 @@ def main():
                               num_workers=0,
                               pin_memory=True)
     paths = [
-        f'propensity/saved_model/{data}_ensemble_neumf_1_20_{i}_ls_0.02.ckpt'
+        f'propensity/saved_model/yahoo_ensemble_neumf_1_20_{i}_ls_0.1.ckpt'
         for i in range(40, n_model + 40)
     ]
     mlp_layer = args.mlp_layers
@@ -58,7 +58,7 @@ def main():
                     (index + 1) * batch_size, len(predictions))] += pred
 
     torch.save(predictions.detach(),
-               f"propensity/ls+ensemble/{data}.pt")
+               f"propensity/ls+ensemble/{data}_seed.pt")
     # predictions = np.array(predictions.detach())
     # np.savetxt(f"data/propensity/ensemble/{sample_ratio}_{args.epoch}.txt",
     #            predictions)

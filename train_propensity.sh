@@ -16,5 +16,5 @@
 
 for seed in {40..49..1}
 do 
-    CUDA_VISIBLE_DEVICES=1  python train_propensity.py --label_smoothing 0.02 --dataset yahoo --seed $seed --n_flag $seed --dir ensemble &
+    CUDA_VISIBLE_DEVICES=1  python train_propensity.py --label_smoothing 0.1 --dataset yahoo --seed $seed --n_flag $seed --dir ensemble &
 done

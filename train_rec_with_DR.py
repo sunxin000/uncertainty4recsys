@@ -1,35 +1,38 @@
-import numpy as np
-from tqdm import tqdm
 import argparse
+
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from netcal.metrics import ECE, MCE
+from sklearn.calibration import CalibrationDisplay, calibration_curve
 from torch.utils.data import DataLoader, random_split
 from torchmetrics.functional.classification.accuracy import accuracy
+from tqdm import tqdm
+
+from model import MF, NeuMF
+from utils.dataset import Observe, ObservedData
+
 # from torch.utils.tensorboard import SummaryWriter
 from utils.metrics import dcg_at_k, recall_at_k
-from model import NeuMF, MF
-from utils.dataset import Observe, ObservedData
 
 
 def parse_args(**kwargs):
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', default='coat')
-    parser.add_argument('--embedding_size', type=int, default=64)
-    parser.add_argument('--sample_ratio', type=int, default=1)
-    parser.add_argument('--mlp_layers',
-                        nargs='*',
-                        type=int,
-                        default=[64, 32, 16])
-    parser.add_argument('--lr', type=float, default=0.001)
-    parser.add_argument('--weight_decay', type=float, default=0.001)
-    parser.add_argument('--ps_epoch', type=int, default=100)
+    parser.add_argument("--dataset", default="coat")
+    parser.add_argument("--embedding_size", type=int, default=64)
+    parser.add_argument("--sample_ratio", type=int, default=1)
+    parser.add_argument("--mlp_layers", nargs="*", type=int, default=[64, 32, 16])
+    parser.add_argument("--lr", type=float, default=0.001)
+    parser.add_argument("--weight_decay", type=float, default=0.001)
+    parser.add_argument("--ps_epoch", type=int, default=100)
     parser.add_argument("--n_flag", type=int, default=0)
     parser.add_argument("--dropout", type=float, default=0.2)
-    parser.add_argument("--dir", default='raw')
+    parser.add_argument("--dir", default="raw")
     parser.add_argument("--epoch", type=int, default=200)
     parser.add_argument("--label_smoothing", type=float, default=0.1)
-    parser.add_argument('--path')
+    parser.add_argument("--path")
     for k, v in kwargs.items():
         parser.add_argument(k, type=v)
     return parser.parse_args()
@@ -47,23 +50,20 @@ def main():
     embedding_size = args.embedding_size
     data = args.dataset
     sample_ratio = args.sample_ratio
-    epoch = args.epoch if data == "coat" else 10
+    epoch = args.epoch if data == "coat" else 6
     ps_epoch = args.ps_epoch
     weight_decay = args.weight_decay
     label_smoothing = args.label_smoothing
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     items_per_user = 16 if data == "coat" else 10
     dir = args.dir
-    check_epoch = 200 if data == 'coat' else 1
+    check_epoch = {10, 50, 100, 200} if data == "coat" else {0, 1, 2}
 
-    propensity = torch.load(
-        f'data/propensity/raw/{data}_epoch_{ps_epoch}_1_dropout_0.2_label_smoothing_{label_smoothing}.pt'
+    propensity = torch.load(f"propensity/{dir}/{data}.pt")
+    train_il = ObservedData(data, train=True, implicit=True, propensity=propensity)
+    train_pred = Observe(
+        data, train=True, sample_ratio=6, eib=True, propensity=propensity
     )
-    train_il = ObservedData(data,
-                         train=True,
-                         implicit=True,
-                         propensity=propensity)
-    train_pred = Observe(data, train=True, sample_ratio=6, eib=True, propensity=propensity)
 
     # train = ObservedData(data, train=True, implicit=True)
     test = ObservedData(data, train=False, implicit=True)
@@ -72,11 +72,13 @@ def main():
     # train_size = int(0.9 * len(train_il))
     # validation_size = len(train) - train_size
     # train, validation = random_split(train, [train_size, validation_size])
-    il_loader = DataLoader(dataset=train_il,
-                              batch_size=batch_size,
-                              shuffle=True,
-                              num_workers=0,
-                              pin_memory=True)
+    il_loader = DataLoader(
+        dataset=train_il,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=0,
+        pin_memory=True,
+    )
 
     pred_loader = DataLoader(
         dataset=train_pred,
@@ -91,37 +93,33 @@ def main():
     #                         shuffle=True,
     #                         num_workers=0,
     #                         pin_memory=True)
-    
-    test_loader = DataLoader(dataset=test,
-                             batch_size=batch_size,
-                             shuffle=False,
-                             num_workers=0,
-                             pin_memory=True)
 
-    model_il = NeuMF(user_num,
-                  item_num,
-                  embedding_size,
-                  embedding_size,
-                  mlp_layers,
-                  dropout=dropout)
-    model_pred = NeuMF(user_num,
-                  item_num,
-                  embedding_size,
-                  embedding_size,
-                  mlp_layers,
-                  dropout=dropout)
+    test_loader = DataLoader(
+        dataset=test,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=True,
+    )
+
+    model_il = NeuMF(
+        user_num, item_num, embedding_size, embedding_size, mlp_layers, dropout=dropout
+    )
+    model_pred = NeuMF(
+        user_num, item_num, embedding_size, embedding_size, mlp_layers, dropout=dropout
+    )
 
     model_il = model_il.to(device)
     model_pred = model_pred.to(device)
 
-    loss_func = nn.BCELoss(reduction='none')
+    loss_func = nn.BCELoss(reduction="none")
     optimizer_il = optim.Adam(
-        model_il.parameters(), lr=lr,
-        weight_decay=weight_decay)  #! can adjust the weight_decay
+        model_il.parameters(), lr=lr, weight_decay=weight_decay
+    )  #! can adjust the weight_decay
 
     optimizer_pred = optim.Adam(
-        model_pred.parameters(), lr=lr,
-        weight_decay=weight_decay)
+        model_pred.parameters(), lr=lr, weight_decay=weight_decay
+    )
 
     batches = len(pred_loader)
 
@@ -132,11 +130,18 @@ def main():
     #     f'tensorboard/{data}_rec_with_DR/{dir}/{data}/{ps_epoch}_label_smoothing_{label_smoothing}_{n_flag}'
     # )
 
+    best_metric = 0
+    n_bins = 100
+    ece = ECE(n_bins)
+    mce = MCE(n_bins)
+
     for epoch in tqdm(range(1, epoch + 1)):
         model_il.train()
         model_pred.train()
         loss_tmp = 0
         acc = []
+        label_il_list = []
+        label_list = []
         for user, item, label, p in il_loader:
             user = user.to(device)
             item = item.to(device)
@@ -150,8 +155,9 @@ def main():
             loss_il = torch.sum(loss_il)
             loss_il.backward()
             optimizer_il.step()
-
-        for user, item, o,  label, p in pred_loader:
+            label_il_list += pred_il.detach().cpu().numpy().tolist()
+            label_list += label.detach().cpu().numpy().tolist()
+        for user, item, o, label, p in pred_loader:
             user = user.to(device)
             item = item.to(device)
             label = label.to(device)
@@ -176,12 +182,23 @@ def main():
         # print(f"train acc {cur_acc}")
         # writer.add_scalar('train/acc', cur_acc, epoch - 1)
         # writer.add_scalar('train/loss', loss_tmp, epoch - 1)
-        
 
-        if epoch == check_epoch:
+        if epoch in check_epoch:
             model_il.eval()
             model_pred.eval()
 
+            #########################################################################
+            label_list = np.array(label_list)
+            label_il_list = np.array(label_il_list)
+            ece_res = ece.measure(label_il_list, label_list)
+            print(f"ece: {ece_res}\n")
+
+            disp = CalibrationDisplay.from_predictions(
+                label_list, label_il_list, n_bins=20, strategy="quantile"
+            )
+            plt.legend(loc="upper left")
+            plt.savefig(f"results/pic/{dir}_{data}_dr_il.jpg")
+            #########################################################################
             PRECISION = []
             predictions = torch.empty(0)
             labels = torch.empty(0)
@@ -195,39 +212,24 @@ def main():
                 labels = torch.cat((labels, label))
                 PRECISION.append(accuracy(pred.cpu(), label.long()).numpy())
 
-            dcg = dcg_at_k(labels,
-                        predictions,
-                        test.user_num,
-                        items_per_user=items_per_user)
-            recall = recall_at_k(labels, predictions, test.user_num,
-                                items_per_user)
-            
-            with open(f'results/{data}_DR_{dir}.txt', 'a') as f:
-                for i in range(3):
-                    f.write(str(dcg[i]))
-                    f.write(' ')
-                for i in range(3):
-                    f.write(str(recall[i]))
-                    f.write(' ')
-                f.write('\n')
-        
-        #     for k in [2, 4, 6]:
-        #         writer.add_scalar(f'test/dcg_at_{k}', dcg[k // 2 - 1], epoch - 1)
-        #         writer.add_scalar(f'test/recall_at_{k}', recall[k // 2 - 1],
-        #                         epoch - 1)
-        #     acc = np.mean(PRECISION)
-        #     writer.add_scalar('test/acc', acc, epoch - 1)
-        # # print(f"acc {acc:.3f}")
-        # print("Epoch:", epoch, "DCG@2,4,6:", dcg)
+            dcg = dcg_at_k(
+                labels, predictions, test.user_num, items_per_user=items_per_user
+            )
+            recall = recall_at_k(labels, predictions, test.user_num, items_per_user)
 
-        # if epoch > start_checking_epoch and acc > best_acc:
+            if np.mean(dcg) + np.mean(recall) > best_metric:
+                best_metric = np.mean(dcg) + np.mean(recall)
+                best_dcg = dcg
+                best_recall = recall
 
-        #     state = {
-        #         'net': model.state_dict(),
-        #         'acc': acc,
-        #         'epoch': epoch,
-        #     }
-        #     torch.save(state,  f"saved_propensity_model/neumf_propensity_{data}.ckpt")
+    with open(f"results/{data}_DR_{dir}.txt", "a") as f:
+        for i in range(3):
+            f.write(str(best_dcg[i]))
+            f.write(" ")
+        for i in range(3):
+            f.write(str(best_recall[i]))
+            f.write(" ")
+        f.write("\n")
 
 
 if __name__ == "__main__":

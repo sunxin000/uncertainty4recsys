@@ -8,7 +8,7 @@ import numpy as np
 from sklearn.model_selection import KFold
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", default="yahoo")
+    parser.add_argument("--dataset", default="coat")
     parser.add_argument("--embedding_size", type=int, default=64)
     parser.add_argument('--mlp_layers', nargs='*', type=int, default=[64, 32, 16])
     parser.add_argument("--sample_ratio", type=int, default=-1)

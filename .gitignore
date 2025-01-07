@@ -6,5 +6,5 @@ thesis
 tb_result
 propensity
 pic
-results/
+*results/
 *.zip

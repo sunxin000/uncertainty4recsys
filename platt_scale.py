@@ -1,10 +1,13 @@
-from ast import parse
-import torch
 import argparse
-from utils.dataset import Observe
+from ast import parse
+
+import torch
+from torch.utils.data import DataLoader, random_split
+
 from model.neumf import NeuMF
+from utils.dataset import Observe
 from utils.platt import ModelWithPlatt
-from torch.utils.data import random_split, DataLoader 
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -19,7 +22,7 @@ def main():
     embedding_size = 64
 
     ckpt = torch.load(f'propensity/saved_model/logits_model/logits_{data}_ls.ckpt')
-    train = Observe(data, True, sample_ratio=sample_ratio)
+    train = Observe(data, 'train', sample_ratio=sample_ratio)
 
     user_num = train.user_num 
     item_num = train.item_num
@@ -41,8 +44,8 @@ def main():
 
     scaled_logits = scaled_model.platt_scale(logits)
 
-    torch.save(torch.sigmoid(logits).cpu(), f'propensity/ls+platt/raw_{data}.pt')
-    torch.save(torch.sigmoid(scaled_logits).detach().cpu(), f'propensity/ls+platt/{data}.pt')
+    # torch.save(torch.sigmoid(logits).cpu(), f'propensity/ls+platt/raw_{data}.pt')
+    torch.save(torch.sigmoid(scaled_logits).detach().cpu(), f'propensity/LS+Platt_Scaling/{data}.pt')
 
     
 

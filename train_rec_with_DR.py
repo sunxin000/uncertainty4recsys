@@ -5,17 +5,16 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from netcal.metrics import ECE, MCE
+# from netcal.metrics import ECE, MCE
 from sklearn.calibration import CalibrationDisplay, calibration_curve
 from torch.utils.data import DataLoader, random_split
 from torchmetrics.functional.classification.accuracy import accuracy
 from tqdm import tqdm
+from sklearn.metrics import roc_auc_score
 
 from model import MF, NeuMF
 from utils.dataset import Observe, ObservedData
-
-# from torch.utils.tensorboard import SummaryWriter
-from utils.metrics import dcg_at_k, recall_at_k
+from utils.metrics import dcg_at_k, recall_at_k, calculate_auc
 
 
 def parse_args(**kwargs):
@@ -50,7 +49,7 @@ def main():
     embedding_size = args.embedding_size
     data = args.dataset
     sample_ratio = args.sample_ratio
-    epoch = args.epoch if data == "coat" else 6
+    epoch = args.epoch if data == "coat" else 4
     ps_epoch = args.ps_epoch
     weight_decay = args.weight_decay
     label_smoothing = args.label_smoothing
@@ -60,13 +59,12 @@ def main():
     check_epoch = {10, 50, 100, 200} if data == "coat" else {0, 1, 2}
 
     propensity = torch.load(f"propensity/{dir}/{data}.pt")
-    train_il = ObservedData(data, train=True, implicit=True, propensity=propensity)
+    train_il = ObservedData(data, train='train', implicit=True, propensity=propensity)
     train_pred = Observe(
-        data, train=True, sample_ratio=6, eib=True, propensity=propensity
+        data, train='train', sample_ratio=6, eib=True, propensity=propensity
     )
 
-    # train = ObservedData(data, train=True, implicit=True)
-    test = ObservedData(data, train=False, implicit=True)
+    test = ObservedData(data, train='test', implicit=True)
     user_num, item_num = train_il.user_num, train_il.item_num
 
     # train_size = int(0.9 * len(train_il))
@@ -132,8 +130,8 @@ def main():
 
     best_metric = 0
     n_bins = 100
-    ece = ECE(n_bins)
-    mce = MCE(n_bins)
+    # ece = ECE(n_bins)
+    # mce = MCE(n_bins)
 
     for epoch in tqdm(range(1, epoch + 1)):
         model_il.train()
@@ -174,7 +172,7 @@ def main():
             dr_loss.backward()
             optimizer_pred.step()
 
-            acc.append(accuracy(pred, label.long()).cpu().numpy())
+            acc.append(accuracy(pred, label.long(), task='binary').cpu().numpy())
 
             loss_tmp += dr_loss.item()
         cur_acc = np.mean(acc)
@@ -186,43 +184,43 @@ def main():
         if epoch in check_epoch:
             model_il.eval()
             model_pred.eval()
-
-            #########################################################################
-            label_list = np.array(label_list)
-            label_il_list = np.array(label_il_list)
-            ece_res = ece.measure(label_il_list, label_list)
-            print(f"ece: {ece_res}\n")
-
-            disp = CalibrationDisplay.from_predictions(
-                label_list, label_il_list, n_bins=20, strategy="quantile"
-            )
-            plt.legend(loc="upper left")
-            plt.savefig(f"results/pic/{dir}_{data}_dr_il.jpg")
-            #########################################################################
-            PRECISION = []
             predictions = torch.empty(0)
             labels = torch.empty(0)
 
             for user, item, label in test_loader:
                 user = user.to(device)
                 item = item.to(device)
-
                 pred = model_pred(user, item)
                 predictions = torch.cat((predictions, pred.detach().cpu()))
                 labels = torch.cat((labels, label))
-                PRECISION.append(accuracy(pred.cpu(), label.long()).numpy())
+
+            # 计算整体AUC
+            overall_auc = roc_auc_score(labels.numpy(), predictions.numpy())
+            
+            # 计算用户级别的平均AUC
+            user_auc = calculate_auc(
+                labels.numpy(), 
+                predictions.numpy(), 
+                test.user_num, 
+                items_per_user=items_per_user, 
+                dataset=data, 
+                user_ids=test.user
+            )
 
             dcg = dcg_at_k(
-                labels, predictions, test.user_num, items_per_user=items_per_user
+                labels, predictions, test.user_num, items_per_user=items_per_user, dataset=data, user_ids=test.user
             )
-            recall = recall_at_k(labels, predictions, test.user_num, items_per_user)
+            recall = recall_at_k(labels, predictions, test.user_num, items_per_user, dataset=data, user_ids=test.user)
 
             if np.mean(dcg) + np.mean(recall) > best_metric:
                 best_metric = np.mean(dcg) + np.mean(recall)
                 best_dcg = dcg
                 best_recall = recall
+                best_overall_auc = overall_auc
+                best_user_auc = user_auc
 
-    with open(f"results/{data}_DR_{dir}.txt", "a") as f:
+    with open(f"new_results/{data}_DR_{dir}.txt", "a") as f:
+        f.write(f"{best_overall_auc} {best_user_auc} ")  # 写入两种AUC
         for i in range(3):
             f.write(str(best_dcg[i]))
             f.write(" ")

@@ -1,13 +1,10 @@
 import argparse
-from site import check_enableusersite
-
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from matplotlib import pyplot as plt
-# from netcal.metrics import ECE, MCE
-from sklearn.calibration import CalibrationDisplay, calibration_curve
+from sklearn.calibration import CalibrationDisplay
 from sklearn.metrics import precision_recall_curve
 from torch.utils.data import DataLoader, random_split
 from torch.utils.tensorboard import SummaryWriter
@@ -17,6 +14,7 @@ from tqdm import tqdm
 from model.neumf import NeuMF
 from utils.dataset import Observe
 from utils.metrics import metrics
+from dual_focal_loss import DualFocalLoss
 
 
 def parse_args(**kwargs):
@@ -32,11 +30,10 @@ def parse_args(**kwargs):
                         default=[64, 32, 16])
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--dir', default='raw')
-    # parser.add_argument('--weight_decay', type=float, default=0.001)
     parser.add_argument('--dropout', type=float, default=0.2)
     parser.add_argument('--n_flag', type=int, default=0)
     parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument('--label_smoothing', type=float, default=0.0)
+    parser.add_argument('--gamma', type=float, default=2.0)  # 新增gamma参数
     for k, v in kwargs.items():
         parser.add_argument(k, type=v)
     return parser.parse_args()
@@ -53,19 +50,17 @@ def main():
     lr = args.lr
     dir = args.dir
     n_flag = args.n_flag
-    label_smoothing = args.label_smoothing
-    if dir == 'raw':
-        label_smoothing = 0.0
-    # weight_decay = args.weight_decay
+    gamma = args.gamma
+
     writer = SummaryWriter(
         log_dir=
-        f'tensorboard/{data}_ps/{embedding_size}_{mlp_layers}_{sample_ratio}_dropout_{args.dropout}')
+        f'tensorboard/{data}_ps_DFL/{embedding_size}_{mlp_layers}_{sample_ratio}_dropout_{args.dropout}_gamma_{gamma}'
+    )
 
     epochs = 100 if data == "coat" else 20
 
     train = Observe(data, 'train', sample_ratio=sample_ratio, seed=0)
-    # test = Observe(data, False, sample_ratio=sample_ratio)
-    train_pos = Observe(data, 'train', sample_ratio=1)
+    train_pos = Observe(data, 'train', sample_ratio=sample_ratio)
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = NeuMF(train.user_num,
@@ -73,41 +68,34 @@ def main():
                   embedding_size,
                   embedding_size,
                   mlp_layers,
-                  dropout=args.dropout,
-                  output_logits=True)
+                  dropout=args.dropout)
 
-    # print(len(train))
     train_size = int(0.9 * len(train))
     validation_size = len(train) - train_size
     train, validation = random_split(train, [train_size, validation_size])
 
     train_loader = DataLoader(dataset=train,
-                              batch_size=1024,
-                              shuffle=True,
-                              pin_memory=True)
-    train_loader_not_shuffle = DataLoader(dataset=train_pos,
-                                          batch_size=batch_size,
-                                          shuffle=False,
-                                          pin_memory=True)
-    val_loader = DataLoader(dataset=validation,
                             batch_size=1024,
                             shuffle=True,
                             pin_memory=True)
-    # test_loader = DataLoader(dataset=test, batch_size=1024, shuffle=True, pin_memory=True)
+    train_loader_not_shuffle = DataLoader(dataset=train_pos,
+                                        batch_size=batch_size,
+                                        shuffle=False,
+                                        pin_memory=True)
+    val_loader = DataLoader(dataset=validation,
+                          batch_size=1024,
+                          shuffle=True,
+                          pin_memory=True)
 
-    #! dont knwo whether the testset has unknown user
-    #? no
     model = model.to(device)
-    loss_func = nn.BCEWithLogitsLoss()
-
-    optimizer = optim.Adam(model.parameters(), lr=lr, )
-                        #    weight_decay=weight_decay)
+    loss_func = DualFocalLoss(gamma=gamma)
+    optimizer = optim.Adam(model.parameters(), lr=lr)
 
     len_preds = len(train_pos.click)
     batches = len(train_loader)
     n_bins = 100
 
-    check_epochs = 100 if data == "coat" else 20
+    check_epochs = 20 if data=='yahoo' or data=='kuairand' else 100
     for epoch in tqdm(range(1, epochs + 1)):
         best_acc = 0
         model.train()
@@ -121,57 +109,46 @@ def main():
             label = label.to(device)
             optimizer.zero_grad()
             prediction = model(user, item)
-            label_float = label.float() * (1.0 - label_smoothing) + 0.5 * label_smoothing
-            loss = loss_func(prediction, label_float)
-            # loss = (1-label_smoothing) * loss + label_smoothing * loss_func(prediction, torch.full_like(prediction, 0.5))
+            loss = loss_func(prediction, label)
             loss.backward()
             optimizer.step()
             acc.append(accuracy(prediction, label, task='binary').cpu().numpy())
             loss_tmp += loss.item()
             preds.append(prediction.detach().cpu().numpy())
             labels.append(label.cpu().numpy())
+        
         labels = np.hstack(labels)
         preds = np.hstack(preds)
-
-        # ece_loss = ece.measure(preds, labels)
-        # writer.add_scalar('train/ece', ece_loss, epoch - 1)
 
         cur_acc = np.mean(acc)
         writer.add_scalar('loss', loss_tmp / batches, epoch - 1)
         writer.add_scalar('train_acc', cur_acc, epoch - 1)
-        # loss_tmp /= batches
-        # print(f"Epoch {epoch}: loss {loss_tmp}")
-        model.eval()
 
+        model.eval()
         _, _, acc = metrics(model, val_loader, 2, device)
         writer.add_scalar('test_acc', acc, epoch - 1)
 
         if epoch % check_epochs == 0:
-            # display
-            torch.save({'net': model.state_dict()}, f"propensity/saved_model/logits_model/logits_{data}_ls.ckpt")
-            # ece_res = ece.measure(preds, labels)
-            # mce_res = mce.measure(preds, labels)
-            # with open('thesis/ece.txt', 'a+') as file:
-            #     file.write(f'ece for {epoch} is {ece_res:.4f}')
-            #     file.write('\n')
-            # with open('thesis/mce.txt', 'a+') as file:
-            #     file.write(f'mce for {epoch} is {mce_res:.4f}')
-            #     file.write('\n')
+            torch.save(
+                {'net': model.state_dict()}, 
+                f"propensity/saved_model/{data}_{dir}_neumf_DFL_{sample_ratio}_{epoch}_{n_flag}_gamma_{gamma}.ckpt"
+            )
+
             if args.visualize:
-                disp = CalibrationDisplay.from_predictions(labels,
-                                                        preds,
-                                                        # strategy='quantile',
-                                                        n_bins=20, label='Propensity model')
-                                                        # strategy='quantile')
-                plt.savefig(f"pic/{data}/{sample_ratio}_neumf_{epoch}_20_dropout{args.dropout}_label_smoothing_{label_smoothing}.jpg")
-            # generate the propensity
+                disp = CalibrationDisplay.from_predictions(
+                    labels,
+                    preds,
+                    n_bins=20,
+                    label='Propensity model DFL'
+                )
+                plt.savefig(
+                    f"pic/{data}/{sample_ratio}_neumf_DFL_{epoch}_20_dropout{args.dropout}_gamma_{gamma}.jpg"
+                )
+
             if args.gen_ps and epoch==epochs:
                 predictions = np.zeros(len_preds)
-                if dir == 'MC_Dropout':
-                    model.train()
                 with torch.no_grad():
-                    for index, (user, item,
-                                label) in enumerate(train_loader_not_shuffle):
+                    for index, (user, item, label) in enumerate(train_loader_not_shuffle):
                         user = user.to(device)
                         item = item.to(device)
                         pred = model(user, item)
@@ -181,11 +158,11 @@ def main():
 
                 torch.save(
                     predictions,
-                    f"propensity/{dir}/{data}_{label_smoothing}.pt")
+                    f"propensity/{dir}/{data}_DFL_gamma_{gamma}.pt")
 
     writer.flush()
     writer.close()
 
 
 if __name__ == '__main__':
-    main()
+    main() 

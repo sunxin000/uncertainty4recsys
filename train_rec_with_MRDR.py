@@ -7,12 +7,12 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
 from torchmetrics.functional.classification.accuracy import accuracy
 from tqdm import tqdm
+from sklearn.metrics import roc_auc_score
 
 from model import MF, NeuMF
 from utils.dataset import Observe, ObservedData
-
 # from torch.utils.tensorboard import SummaryWriter
-from utils.metrics import dcg_at_k, recall_at_k
+from utils.metrics import dcg_at_k, recall_at_k, calculate_auc
 
 
 def parse_args(**kwargs):
@@ -49,22 +49,21 @@ def main():
     embedding_size = args.embedding_size
     data = args.dataset
     sample_ratio = args.sample_ratio
-    epoch = args.epoch if data == "coat" else 6
+    epoch = args.epoch if data == "coat" else 4
     ps_epoch = args.ps_epoch
     weight_decay = args.weight_decay
     label_smoothing = args.label_smoothing
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     items_per_user = 16 if data == "coat" else 10
     dir = args.dir
-    check_epoch = {200} if data == "coat" else {0, 1, 2, 3, 4, 5}
+    check_epoch = {10, 50, 100, 200} if data == "coat" else {0, 1, 2, 3, 4, 5}
     propensity = torch.load(f"propensity/{dir}/{data}.pt")
-    train_il = ObservedData(data, train=True, implicit=True, propensity=propensity)
+    train_il = ObservedData(data, train='train', implicit=True, propensity=propensity)
     train_pred = Observe(
-        data, train=True, sample_ratio=6, eib=True, propensity=propensity
+        data, train='train', sample_ratio=6, eib=True, propensity=propensity
     )
 
-    # train = ObservedData(data, train=True, implicit=True)
-    test = ObservedData(data, train=False, implicit=True)
+    test = ObservedData(data, train='test', implicit=True)
     user_num, item_num = train_il.user_num, train_il.item_num
 
     # train_size = int(0.9 * len(train_il))
@@ -153,7 +152,8 @@ def main():
             pred_il = model_il(user, item)
             cross_entropy_il = loss_func(pred_il, label)
             loss_il = cross_entropy_il / p
-            loss_mrdr = cross_entropy_il * (1 - p) / p
+            mrdr_coeff = torch.clamp((1 - p) / (p * p), 0, 5)
+            loss_mrdr = cross_entropy_il * mrdr_coeff
             loss_il = torch.sum(loss_il)
             loss_il_mrdr = torch.sum(loss_mrdr)
             loss_il_mrdr.backward()
@@ -176,7 +176,7 @@ def main():
             dr_loss.backward()
             optimizer_pred.step()
 
-            acc.append(accuracy(pred, label.long()).cpu().numpy())
+            acc.append(accuracy(pred, label.long(), task='binary').cpu().numpy())
 
             loss_tmp += dr_loss.item()
         cur_acc = np.mean(acc)
@@ -199,19 +199,32 @@ def main():
                 pred = model_pred(user, item)
                 predictions = torch.cat((predictions, pred.detach().cpu()))
                 labels = torch.cat((labels, label))
-                PRECISION.append(accuracy(pred.cpu(), label.long()).numpy())
+                PRECISION.append(accuracy(pred.cpu(), label.long(), task='binary').numpy())
+
+            overall_auc = roc_auc_score(labels.numpy(), predictions.numpy())
+            user_auc = calculate_auc(
+                labels.numpy(), 
+                predictions.numpy(), 
+                test.user_num, 
+                items_per_user=items_per_user, 
+                dataset=data, 
+                user_ids=test.user
+            )
 
             dcg = dcg_at_k(
-                labels, predictions, test.user_num, items_per_user=items_per_user
+                labels, predictions, test.user_num, items_per_user=items_per_user, dataset=data, user_ids=test.user
             )
-            recall = recall_at_k(labels, predictions, test.user_num, items_per_user)
+            recall = recall_at_k(labels, predictions, test.user_num, items_per_user, dataset=data, user_ids=test.user)
 
             if np.mean(dcg) + np.mean(recall) > best_metric:
                 best_metric = np.mean(dcg) + np.mean(recall)
                 best_dcg = dcg
                 best_recall = recall
+                best_overall_auc = overall_auc
+                best_user_auc = user_auc
 
-    with open(f"results/{data}_MRDR_{dir}.txt", "a") as f:
+    with open(f"new_results/{data}_MRDR_{dir}.txt", "a") as f:
+        f.write(f"{best_overall_auc} {best_user_auc} ")
         for i in range(3):
             f.write(str(best_dcg[i]))
             f.write(" ")

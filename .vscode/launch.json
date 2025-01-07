@@ -1,16 +1,47 @@
 {
-    // 使用 IntelliSense 了解相关属性。 
-    // 悬停以查看现有属性的描述。
-    // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python: 当前文件",
+            "name": "Python: \u5f53\u524d\u6587\u4ef6",
             "type": "python",
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "justMyCode": true,
+            "justMyCode": true
+        },
+        {
+            "name": "Python: train_propensity_platt.py --dataset kuairand --sample_ratio 1 --label_smoothing 0.1",
+            "type": "python",
+            "request": "launch",
+            "program": "train_propensity_platt.py",
+            "env": {},
+            "console": "integratedTerminal",
+            "args": [
+                "--dataset",
+                "kuairand",
+                "--sample_ratio",
+                "1",
+                "--label_smoothing",
+                "0.1"
+            ],
+            "cwd": "/data/sunxin/causal/uncertainty4recsys"
+        },
+        {
+            "name": "Python: train_rec_with_ips_val.py --dir LS --dataset kuairand --seed 0",
+            "type": "python",
+            "request": "launch",
+            "program": "train_rec_with_ips_val.py",
+            "env": {},
+            "console": "integratedTerminal",
+            "args": [
+                "--dir",
+                "LS",
+                "--dataset",
+                "kuairand",
+                "--seed",
+                "0"
+            ],
+            "cwd": "/data/sunxin/causal/uncertainty4recsys"
         }
     ]
 }

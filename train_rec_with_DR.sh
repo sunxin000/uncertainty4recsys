@@ -1,22 +1,26 @@
-# dir='Platt_Scaling'
-# data='coat'
-label_smoothing=0.0
-ps_epoch=100
-CUDA=0
-for dir in MC_Dropout Deep_Ensembles Platt_Scaling; do 
-    for data in coat yahoo; do
-        rm "./results/${data}_DR_${dir}.txt"
-        for n_flag in {1..10..1}; do
-            CUDA_VISIBLE_DEVICES=$CUDA python train_rec_with_DR.py --dataset $data --dir $dir --n_flag $n_flag \
-            --label_smoothing $label_smoothing --ps_epoch $ps_epoch &
+gpus=(2 3 4 5 6 7)
+dirs=('raw' 'MC_Dropout' 'Platt_Scaling' 'Deep_Ensembles' 'dfl')
+datasets=('kuairand')
+
+for dir in "${dirs[@]}"; do
+    for dataset in "${datasets[@]}"; do 
+        echo $dir $dataset
+        path="propensity/${dir}/${dataset}.pt"
+        
+        if [ -f "./new_results/${dataset}_DR_${dir}.txt" ]; then
+            rm "./new_results/${dataset}_DR_${dir}.txt"
+        fi
+        
+        for n_flag in {0..5..1}; do
+            CUDA_VISIBLE_DEVICES=${gpus[n_flag]}$ python train_rec_with_DR.py \
+            --dir $dir \
+            --dataset $dataset \
+            --n_flag $n_flag \
+            --path $path & 
         done
+
         wait
-        python calculate_confidence_interval.py --name "${data}_DR_${dir}.txt"
+
+        python calculate_confidence_interval.py --name "${dataset}_DR_${dir}.txt"
     done
 done
-# for n_flag in {1..10..1}; do
-#     CUDA_VISIBLE_DEVICES=$CUDA python train_rec_with_DR.py --dataset coat --dir raw --n_flag $n_flag \
-#     --label_smoothing $label_smoothing --ps_epoch $ps_epoch &
-# done
-# wait
-# python calculate_confidence_interval.py --name "${data}_DR_${dir}.txt"

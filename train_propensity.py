@@ -1,20 +1,22 @@
-from site import check_enableusersite
-from sklearn.metrics import precision_recall_curve
-from torchmetrics.functional.classification.accuracy import accuracy
-from utils.dataset import Observe
 import argparse
+from site import check_enableusersite
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from matplotlib import pyplot as plt
+# from netcal.metrics import ECE, MCE
+from sklearn.calibration import CalibrationDisplay, calibration_curve
+from sklearn.metrics import precision_recall_curve
 from torch.utils.data import DataLoader, random_split
 from torch.utils.tensorboard import SummaryWriter
+from torchmetrics.functional.classification.accuracy import accuracy
 from tqdm import tqdm
-import numpy as np
-from utils.metrics import metrics
+
 from model.neumf import NeuMF
-from netcal.metrics import ECE, MCE
-from sklearn.calibration import calibration_curve, CalibrationDisplay
-from matplotlib import pyplot as plt
+from utils.dataset import Observe
+from utils.metrics import metrics
 
 
 def parse_args(**kwargs):
@@ -59,9 +61,9 @@ def main():
 
     epochs = 100 if data == "coat" else 20
 
-    train = Observe(data, True, sample_ratio=sample_ratio, seed=0)
+    train = Observe(data, 'train', sample_ratio=sample_ratio, seed=0)
     # test = Observe(data, False, sample_ratio=sample_ratio)
-    train_pos = Observe(data, True, sample_ratio=sample_ratio)
+    train_pos = Observe(data, 'train', sample_ratio=sample_ratio)
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = NeuMF(train.user_num,
@@ -101,8 +103,8 @@ def main():
     len_preds = len(train_pos.click)
     batches = len(train_loader)
     n_bins = 100
-    ece = ECE(n_bins)
-    mce = MCE(n_bins)
+    # ece = ECE(n_bins)
+    # mce = MCE(n_bins)
 
     check_epochs = 20 if data=='yahoo' else 100
     for epoch in tqdm(range(1, epochs + 1)):
@@ -123,7 +125,7 @@ def main():
             # loss = (1-label_smoothing) * loss + label_smoothing * loss_func( torch.full_like(prediction, 0.5), preditions)
             loss.backward()
             optimizer.step()
-            acc.append(accuracy(prediction, label).cpu().numpy())
+            acc.append(accuracy(prediction, label, task='binary').cpu().numpy())
             loss_tmp += loss.item()
             preds.append(prediction.detach().cpu().numpy())
             labels.append(label.cpu().numpy())

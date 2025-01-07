@@ -1,15 +1,17 @@
-import numpy as np
-from tqdm import tqdm
 import argparse
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
-from torchmetrics.functional.classification.accuracy import accuracy
 from torch.utils.tensorboard import SummaryWriter
-from utils.metrics import dcg_at_k, recall_at_k
-from model import NeuMF, MF
+from torchmetrics.functional.classification.accuracy import accuracy
+from tqdm import tqdm
+
+from model import MF, NeuMF
 from utils.dataset import Observe, ObservedData
+from utils.metrics import dcg_at_k, recall_at_k
 
 
 def parse_args(**kwargs):
@@ -57,12 +59,12 @@ def main():
         f'propensity/{dir}/{data}.pt'
     )
     train_il = ObservedData(data,
-                         train=True,
+                         train='train',
                          implicit=True,
                          propensity=propensity)
-    train_pred = Observe(data, train=True, sample_ratio=6, eib=True, propensity=propensity)
+    train_pred = Observe(data, train='train', sample_ratio=6, eib=True, propensity=propensity)
 
-    test = ObservedData(data, train=False, implicit=True)
+    test = ObservedData(data, train='test', implicit=True)
     user_num, item_num = train_il.user_num, train_il.item_num
 
     train_size = int(0.9 * len(train_il))
@@ -176,7 +178,7 @@ def main():
             dr_loss.backward()
             optimizer_pred.step()
 
-            acc.append(accuracy(pred, label.long()).cpu().numpy())
+            acc.append(accuracy(pred, label.long(), task='binary').cpu().numpy())
 
             loss_tmp += dr_loss.item()
         cur_acc = np.mean(acc)

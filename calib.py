@@ -33,7 +33,7 @@ def main():
 
 
     predictions = torch.load(path)
-    train = Observe(data, True, sample_ratio=sample_ratio, seed=0) #! the sample ratio can change
+    train = Observe(data, 'train', sample_ratio=sample_ratio, seed=0) #! the sample ratio can change
     y_true = train.click
     # user_num = train.user_num
     # item_num = train.item_num

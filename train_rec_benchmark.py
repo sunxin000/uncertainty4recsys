@@ -1,18 +1,19 @@
 import argparse
-import tqdm
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import tqdm
 from torch.utils.data import DataLoader, random_split
-import numpy as np
 from torchmetrics.functional.classification.accuracy import accuracy
+from sklearn.metrics import roc_auc_score
 
+from model.MF import MF
 # from torch.utils.tensorboard import SummaryWriter
 from model.neumf import NeuMF
-from model.MF import MF
-
-from utils.metrics import metrics, dcg_at_k, recall_at_k
 from utils.dataset import ObservedData
+from utils.metrics import dcg_at_k, metrics, recall_at_k, calculate_auc 
 
 torch.backends.cudnn.benchmark = True
 def parse_args():
@@ -46,9 +47,8 @@ def main():
     embedding_size = 64
     check_epoch = 200 if data=='coat' else 1
     torch.manual_seed(args.seed)
-    train = ObservedData(data, train=True, implicit=True)
-    # train = ObservedData(data, train=True, implicit=True)
-    test = ObservedData(data, train=False, implicit=True)
+    train = ObservedData(data, train='train', implicit=True)
+    test = ObservedData(data, train='test', implicit=True)
     user_num, item_num = train.user_num, train.item_num
 
     train_size = int(0.9 * len(train))
@@ -99,7 +99,7 @@ def main():
             loss = loss_func(prediction, label.float())
             loss.backward()
             optimizer.step()
-            acc.append(accuracy(prediction, label.long()).cpu().numpy())
+            acc.append(accuracy(prediction, label.long(), task="binary").cpu().numpy())
             loss_tmp += loss.item()
         loss_tmp /= batches
         # cur_acc = np.mean(acc)
@@ -118,17 +118,24 @@ def main():
                 labels = torch.cat((labels, label))
                 # PRECISION.append(accuracy(pred.cpu(), label.long()).numpy())
 
-            dcg = dcg_at_k(labels,
-                        predictions,
-                        test.user_num,
-                        items_per_user=items_per_user)
-            recall = recall_at_k(
-                labels,
-                predictions,
-                test.user_num,
-                items_per_user)
+            # 计算整体AUC
+            overall_auc = roc_auc_score(labels.numpy(), predictions.numpy())
+            
+            # 计算用户级别的平均AUC
+            user_auc = calculate_auc(
+                labels.numpy(), 
+                predictions.numpy(), 
+                test.user_num, 
+                items_per_user=items_per_user, 
+                dataset=data, 
+                user_ids=test.user
+            )
 
-            with open(f'results/{data}_bench.txt', 'a') as f:
+            dcg = dcg_at_k(labels, predictions, test.user_num, items_per_user=items_per_user, dataset=data)
+            recall = recall_at_k(labels, predictions, test.user_num, items_per_user, dataset=data)
+
+            with open(f'new_results/{data}_bench.txt', 'a') as f:
+                f.write(f"{overall_auc} {user_auc} ")  # 写入两种AUC
                 for i in range(3):
                     f.write(str(dcg[i]))
                     f.write(' ')

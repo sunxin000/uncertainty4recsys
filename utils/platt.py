@@ -47,9 +47,8 @@ class ModelWithPlatt(nn.Module):
 
             def eval():
                 optimizer.zero_grad()
-                #TODO only platt scale for positive samples
-                positive_logits = logits[labels==1]
-                positive_labels = labels[labels==1]
+                positive_logits = logits
+                positive_labels = labels
                 loss = nll_criterion(self.platt_scale(positive_logits), positive_labels.float())
                 loss.backward()
                 return loss

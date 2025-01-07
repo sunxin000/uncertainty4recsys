@@ -1,10 +1,14 @@
+import argparse
+import time
+
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
-from torch.utils.data import random_split, DataLoader
+import tqdm
+from torch.utils.data import DataLoader, random_split
+
 from model.neumf import NeuMF
 from utils.dataset import Observe
-import matplotlib.pyplot as plt
-import argparse
-import numpy as np
 
 
 def parse_args():
@@ -29,7 +33,7 @@ def main():
     sample_ratio = args.sample_ratio
     n_model = args.n_model
     batch_size = 1024
-    train = Observe(data, True, sample_ratio=sample_ratio)
+    train = Observe(data, 'train', sample_ratio=sample_ratio)
     user_num = train.user_num
     item_num = train.item_num
     train_loader = DataLoader(dataset=train,
@@ -38,7 +42,7 @@ def main():
                               num_workers=0,
                               pin_memory=True)
     paths = [
-        f'propensity/saved_model/yahoo_ensemble_neumf_1_20_{i}_ls_0.1.ckpt'
+        f'propensity/saved_model/coat_ensemble_neumf_1_100_{i}_ls_0.1.ckpt'
         for i in range(40, n_model + 40)
     ]
     mlp_layer = args.mlp_layers
@@ -47,8 +51,10 @@ def main():
     len_preds = len(train)
     predictions = torch.zeros(len_preds, )
     model.eval()
+    print(len(paths))
+    start = time.time()
     with torch.no_grad():
-        for path in paths:
+        for path in tqdm.tqdm(paths):
             checkpoint = torch.load(path)
             model.load_state_dict(checkpoint['net'])
             for index, (user, item, label) in enumerate(train_loader):
@@ -56,6 +62,8 @@ def main():
                 pred = pred / n_model
                 predictions[index * batch_size:min(
                     (index + 1) * batch_size, len(predictions))] += pred
+    end = time.time()
+    print(f"Time: {end - start}")
 
     torch.save(predictions.detach(),
                f"propensity/ls+ensemble/{data}_seed.pt")

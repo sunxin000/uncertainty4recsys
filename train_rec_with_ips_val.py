@@ -1,16 +1,18 @@
-import numpy as np
-from tqdm import tqdm
 import argparse
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
-from torchmetrics.functional.classification.accuracy import accuracy
 from torch.utils.tensorboard import SummaryWriter
-from utils.metrics import dcg_at_k, recall_at_k
-from model.neumf import NeuMF
+from torchmetrics.functional.classification.accuracy import accuracy
+from tqdm import tqdm
+
 from model.MF import MF
+from model.neumf import NeuMF
 from utils.dataset import ObservedData
+from utils.metrics import dcg_at_k, recall_at_k
 
 
 def parse_args(**kwargs):
@@ -61,17 +63,18 @@ def main():
     )
 
     train = ObservedData(data,
-                         train=True,
+                         train='train',
                          implicit=True,
                          propensity=propensity)
 
-    # train = ObservedData(data, train=True, implicit=True)
-    test = ObservedData(data, train=False, implicit=True)
+    test = ObservedData(data, train='test', implicit=True)
+    
     user_num, item_num = train.user_num, train.item_num
 
-    train_size = int(0.9 * len(train))
-    validation_size = len(train) - train_size
-    train, validation = random_split(train, [train_size, validation_size])
+    # train_size = int(0.9 * len(train))
+    # validation_size = len(train) - train_size
+    # train, validation = random_split(train, [train_size, validation_size])
+    validation = ObservedData(data, train='val', implicit=True)
     train_loader = DataLoader(dataset=train,
                               batch_size=batch_size,
                               shuffle=True,
@@ -134,7 +137,7 @@ def main():
             # loss.backward()
             optimizer.step()
 
-            acc.append(accuracy(prediction, label.long()).cpu().numpy())
+            acc.append(accuracy(prediction, label.long(), task='binary').cpu().numpy())
 
             loss_tmp += loss_ips.item()
         # cur_acc = np.mean(acc)
@@ -149,14 +152,14 @@ def main():
         labels = torch.empty(0)
         propensities = torch.empty(0)
 
-        for user, item, label, propensity in val_loader:
+        for user, item, label in val_loader:
             user = user.to(device)
             item = item.to(device)
 
             pred = model(user, item)
             predictions = torch.cat((predictions, pred.detach().cpu()))
             labels = torch.cat((labels, label))
-            propensities = torch.cat((propensities, propensity))
+            # propensities = torch.cat((propensities, propensity))
         
         ce = torch.mean(loss_func(predictions, labels.float()))# * torch.reciprocal(propensities))
         writer.add_scalar('val_ce', ce, epoch-1)
@@ -172,9 +175,9 @@ def main():
             best_dcg = dcg_at_k(labels,
                         predictions,
                         test.user_num,
-                        items_per_user=items_per_user)
+                        items_per_user=items_per_user, dataset=data, user_ids=test.user)
             best_recall = recall_at_k(labels, predictions, test.user_num,
-                                items_per_user)
+                                items_per_user, dataset=data, user_ids=test.user)
             best_epoch = epoch
             best_ce = ce
     print(best_dcg)

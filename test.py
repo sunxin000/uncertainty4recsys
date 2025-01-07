@@ -25,7 +25,7 @@ data = 'yahoo'
 propensity = torch.load('propensity/ls/yahoo.pt')
 # propensity = torch.tensor(propensity).cuda()
 train_il = ObservedData(data,
-                        train=True,
+                        train='train',
                         implicit=True,
                         propensity=propensity)
 

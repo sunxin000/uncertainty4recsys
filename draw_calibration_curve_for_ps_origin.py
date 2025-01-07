@@ -3,7 +3,7 @@ from utils.dataset import Observe
 from sklearn.calibration import calibration_curve, CalibrationDisplay
 from matplotlib import pyplot as plt
 sample_ratio = -1
-dataset = Observe(train=True, sample_ratio=sample_ratio)
+dataset = Observe(train='train', sample_ratio=sample_ratio)
 user = dataset.user
 item = dataset.item
 label = dataset.target

@@ -10,11 +10,12 @@ from torch.utils.data import DataLoader, random_split
 from torch.utils.tensorboard import SummaryWriter
 from torchmetrics.functional.classification.accuracy import accuracy
 from tqdm import tqdm
+from sklearn.metrics import roc_auc_score
 
 from model.MF import MF
 from model.neumf import NeuMF
 from utils.dataset import ObservedData
-from utils.metrics import dcg_at_k, recall_at_k
+from utils.metrics import dcg_at_k, recall_at_k, calculate_auc
 
 
 def parse_args(**kwargs):
@@ -50,7 +51,7 @@ def main():
     embedding_size = args.embedding_size
     data = args.dataset
     sample_ratio = args.sample_ratio
-    epoch = args.epoch if data == "coat" else 5
+    epoch = args.epoch if data == "coat" else 4
     # ps_epoch = args.ps_epoch
     weight_decay = args.weight_decay
     # label_smoothing = args.label_smoothing
@@ -65,10 +66,9 @@ def main():
 
     propensity = torch.load(args.path)
 
-    train = ObservedData(data, train=True, implicit=True, propensity=propensity)
+    train = ObservedData(data, train='train', implicit=True, propensity=propensity)
 
-    # train = ObservedData(data, train=True, implicit=True)
-    test = ObservedData(data, train=False, implicit=True)
+    test = ObservedData(data, train='test', implicit=True)
     user_num, item_num = train.user_num, train.item_num
 
     # train_size = int(0.9 * len(train))
@@ -141,13 +141,13 @@ def main():
             InvP = torch.reciprocal(propensity)
             InvP = InvP.to(device)
             loss_ips = torch.sum(loss * InvP)  #! maybe sum? dont know why
-            if args.snips:
+            if not args.snips:
                 snips_denominator = 1
             loss_ips = loss_ips / snips_denominator
             loss_ips.backward()
             optimizer.step()
 
-            acc.append(accuracy(prediction, label.long()).cpu().numpy())
+            acc.append(accuracy(prediction, label.long(), task='binary').cpu().numpy())
 
             loss_tmp += loss_ips.item()
         cur_acc = np.mean(acc)
@@ -168,16 +168,32 @@ def main():
                 predictions = torch.cat((predictions, pred.detach().cpu()))
                 labels = torch.cat((labels, label))
 
-            dcg = dcg_at_k(
-                labels, predictions, test.user_num, items_per_user=items_per_user
+            # 计算整体AUC
+            overall_auc = roc_auc_score(labels.numpy(), predictions.numpy())
+            writer.add_scalar('test/overall_auc', overall_auc, epoch - 1)
+
+            # 计算用户级别的平均AUC
+            user_auc = calculate_auc(
+                labels.numpy(), 
+                predictions.numpy(), 
+                test.user_num, 
+                items_per_user=items_per_user, 
+                dataset=data, 
+                user_ids=test.user
             )
-            recall = recall_at_k(labels, predictions, test.user_num, items_per_user)
+            writer.add_scalar('test/user_auc', user_auc, epoch - 1)
+
+            dcg = dcg_at_k(
+                labels, predictions, test.user_num, items_per_user=items_per_user, dataset=data, user_ids=test.user
+            )
+            recall = recall_at_k(labels, predictions, test.user_num, items_per_user, dataset=data, user_ids=test.user)
             for k in [2, 4, 6]:
                 writer.add_scalar(f"test/dcg_at_{k}", dcg[k // 2 - 1], epoch - 1)
                 writer.add_scalar(f"test/recall_at_{k}", recall[k // 2 - 1], epoch - 1)
 
         if epoch == check_epoch:
-            with open(f"results/{data}_{dir}{res_suffix}.txt", "a") as f:
+            with open(f"new_results/{data}_ips_{dir}{res_suffix}.txt", "a") as f:
+                f.write(f"{overall_auc} {user_auc} ")  # 写入两种AUC
                 for i in range(3):
                     f.write(str(dcg[i]))
                     f.write(" ")

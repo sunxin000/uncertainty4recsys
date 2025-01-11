@@ -21,7 +21,7 @@ def main():
     sample_ratio = 1
     embedding_size = 64
 
-    ckpt = torch.load(f'propensity/saved_model/logits_model/logits_{data}_ls.ckpt')
+    ckpt = torch.load(f'propensity/saved_model/logits_model/logits_{data}.ckpt')
     train = Observe(data, 'train', sample_ratio=sample_ratio)
 
     user_num = train.user_num 
@@ -45,7 +45,7 @@ def main():
     scaled_logits = scaled_model.platt_scale(logits)
 
     # torch.save(torch.sigmoid(logits).cpu(), f'propensity/ls+platt/raw_{data}.pt')
-    torch.save(torch.sigmoid(scaled_logits).detach().cpu(), f'propensity/LS+Platt_Scaling/{data}.pt')
+    torch.save(torch.sigmoid(scaled_logits).detach().cpu(), f'propensity/LS+Platt_Scaling/{data}_no_ls.pt')
 
     
 

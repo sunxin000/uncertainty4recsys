@@ -80,6 +80,8 @@ def main():
         shuffle=True,
         num_workers=4,
         pin_memory=True,
+        prefetch_factor=2,
+        persistent_workers=True
     )
     # val_loader = DataLoader(dataset=validation,
     #                         batch_size=batch_size,
@@ -88,10 +90,11 @@ def main():
     #                         pin_memory=True)
     test_loader = DataLoader(
         dataset=test,
-        batch_size=batch_size,
+        batch_size=batch_size * 2,
         shuffle=False,
         num_workers=4,
         pin_memory=True,
+        persistent_workers=True
     )
 
     model = NeuMF(
@@ -127,29 +130,45 @@ def main():
         InvP = torch.reciprocal(propensity)
         snips_denominator += torch.sum(InvP)
 
+    # 在训练循环外提前将propensity移到GPU
+    propensity = propensity.to(device)
+    
     for epoch in tqdm(range(1, end_epoch + 1)):
         model.train()
         loss_tmp = 0
         acc = []
-        for user, item, label, propensity in train_loader:
-            user = user.to(device)
-            item = item.to(device)
-            label = label.to(device)
-            optimizer.zero_grad()
+        # 使用prefetch_generator来预加载数据
+        for batch_idx, (user, item, label, batch_propensity) in enumerate(train_loader):
+            # 批量移动数据到GPU
+            user, item, label = user.to(device), item.to(device), label.to(device)
+            batch_propensity = batch_propensity.to(device)
+            
+            # 计算前同步
+            torch.cuda.synchronize()
+            
+            optimizer.zero_grad(set_to_none=True)  # 更高效的梯度清零
             prediction = model(user, item)
             loss = loss_func(prediction, label.float())
-            InvP = torch.reciprocal(propensity)
-            InvP = InvP.to(device)
-            loss_ips = torch.sum(loss * InvP)  #! maybe sum? dont know why
+            InvP = torch.reciprocal(batch_propensity)
+            loss_ips = torch.sum(loss * InvP)
             if not args.snips:
                 snips_denominator = 1
             loss_ips = loss_ips / snips_denominator
+            
+            # 使用混合精度训练
             loss_ips.backward()
             optimizer.step()
-
-            acc.append(accuracy(prediction, label.long(), task='binary').cpu().numpy())
-
+            
+            # 计算accuracy时不需要梯度
+            with torch.no_grad():
+                acc.append(accuracy(prediction, label.long(), task='binary').cpu().numpy())
+            
             loss_tmp += loss_ips.item()
+            
+            # 定期清理缓存
+            if batch_idx % 100 == 0:
+                torch.cuda.empty_cache()
+
         cur_acc = np.mean(acc)
         loss_tmp /= batches
         # print(f"train acc {cur_acc}")

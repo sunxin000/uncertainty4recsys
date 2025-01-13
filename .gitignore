@@ -1,8 +1,6 @@
 *__pycache__
 saved_propensity_model
 tensorboard
-data/kuairand
-data/yahoo
 data/propensity
 thesis
 tb_result
@@ -12,3 +10,4 @@ pic
 *.zip
 *.pdf
 *.png
+platt_calibration_plots/

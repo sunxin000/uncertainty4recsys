@@ -10,3 +10,5 @@ propensity/saved_model
 pic
 *results/
 *.zip
+*.pdf
+*.png
